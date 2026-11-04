@@ -17,6 +17,30 @@ uses the DNAr development source from `/home/mark/dnar/R` through the
 
 The example circuit is [examples/Sequential multiplication pipeline.json](examples/Sequential%20multiplication%20pipeline.json).
 
+### Netlist CAD
+
+The backend exposes `POST /api/v2/cad/compile` to turn a junction/netlist
+description into an editable v2 project. A net contains two or more junction
+IDs; junctions may use `role: "source"` or `role: "sink"` to control pumps and
+the terminal node. The compiler applies deterministic grid placement,
+capacity-aware Manhattan routing, and CTS/DME-style nearest-tree embedding.
+
+```json
+{
+  "name": "two-input mixer",
+  "junctions": [
+    {"id": "sample-a", "role": "source"},
+    {"id": "sample-b", "role": "source"},
+    {"id": "mixer", "role": "sink"}
+  ],
+  "nets": [{"id": "mix", "pins": ["sample-a", "sample-b", "mixer"], "target_time": 4.0}]
+}
+```
+
+The response contains `project` (ready for `/api/v2/projects/validate` or
+`/api/v2/runs`), plus `placement`, `routes`, and `cts` diagnostics. A simpler
+`channels` list with `source` and `target` can be used instead of `nets`.
+
 
 
 ## Project

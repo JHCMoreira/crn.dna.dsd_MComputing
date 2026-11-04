@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from .models import Project, import_project
 from .engine import atomic_json, read_json
+from .cad import compile_netlist
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = Path(os.environ.get("FLUIDNA_RUNS", ROOT / ".runs")).resolve()
@@ -162,6 +163,17 @@ def validate(project: Project):
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return {"valid": True}
+
+
+@app.post("/api/v2/cad/compile")
+def compile_cad(data: dict):
+    """Compile a junction/netlist description into an editable v2 project."""
+    try:
+        result = compile_netlist(data)
+        Project.model_validate(result["project"])
+        return result
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @app.post("/api/v2/runs", status_code=202)
