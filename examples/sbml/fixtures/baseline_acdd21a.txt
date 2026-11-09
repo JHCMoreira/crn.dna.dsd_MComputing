@@ -1,0 +1,36 @@
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+
+== c0_controle 
+   esperado: reacao 'A + B -> C', ki = 0.5, aceito como mass-action 
+   obtido: reactions = A + B -> C 
+           ki        = 0.5 
+
+== c1_volume 
+   esperado: reacao 'A + B -> C', ki = 0.5 (coeficiente 1 / V=2) 
+   obtido: ERRO -> object 'compartment' not found 
+
+== c2_parametro_local 
+   esperado: reacao 'A -> B', ki = 0.5 (o local vence o global) 
+   obtido: reactions = A -> B 
+           ki        = 3 
+
+== c3_reversivel 
+   esperado: duas reacoes: 'A -> B' ki = 1 e 'B -> A' ki = 0.5 
+   obtido: reactions = A <-> B 
+           ki        = 1 
+   aviso: Reaction 'r1' is not mass action; ki uses its initial-state rate. 
+
+== c4_ordem_errada 
+   esperado: marcado como nao suportado (lei k*A nao e mass-action de A + B) 
+   obtido: reactions = A + B -> C 
+           ki        = 2 
