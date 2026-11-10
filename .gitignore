@@ -15,3 +15,8 @@ matlab/data
 .venv
 .vscode
 .Rbuildignore
+
+# Papel D: resultados gerados, Test Suite baixada e notas locais
+results/
+test-suite/
+contexto_papel_D.md

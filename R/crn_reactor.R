@@ -873,7 +873,7 @@ react2 <- function(
 react3 <- function(
     species, ci, reactions, ki, t,
     verbose = FALSE, engine = 'desolve',
-    forced_concentrations = NULL) {
+    forced_concentrations = NULL, ...) {
     if(!engine %in% c('desolve', 'diffeqr')) {
         stop(sprintf("Invalid engine: '%s'. Must be either 'desolve' or 'diffeqr'.", engine))
     }
