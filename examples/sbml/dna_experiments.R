@@ -79,3 +79,81 @@ for (f in c(1.5, 2, 5, 11, 101, 1e3, 1e4)) {
     erro_sem_dividir = sem, erro_dividindo = com)
 }
 write.csv(do.call(rbind, exp2), "results/exp2_lambda.csv", row.names = FALSE)
+
+# ------------------------------------------------------------------
+# Experimento 3: casos reais da SBML Test Suite pelo circuito DNA
+# Fluxo à mão: SBML -> read_sbml_to_dnar() -> react3() (CRN) e
+# react_4domain() (DNA) -> comparação com o -results.csv da suíte.
+# Precisa da suíte em external/sbml-test-suite
+# (Rscript scripts/download_sbml_test_suite.R, do papel A).
+# ------------------------------------------------------------------
+source("examples/sbml/testbench.R")   # read_sbml_to_dnar(), parse_sbml_settings()
+
+suite_dir <- file.path("external", "sbml-test-suite", "cases", "semantic")
+casos_exp3 <- c("00048", "00060", "00062")   # acrescente outros casos aqui
+
+passa_tol <- function(sim, ref, especies, abs_tol, rel_tol) {
+  all(vapply(especies, function(s)
+    all(abs(sim[[s]] - ref[[s]]) <= abs_tol + rel_tol * abs(ref[[s]])),
+    logical(1)))
+}
+
+# atol/rtol do deSolve: o padrão (1e-6) é do tamanho dos valores de vários
+# casos da suíte (~1e-6) e gera ~1% de erro numérico (ex.: 00062). Usamos os
+# mesmos valores da rodada do papel A.
+rodar_caso_dna <- function(caso, fator_qmax = 1e4, fator_cmax = 1e4,
+                           atol = 1e-12, rtol = 1e-10) {
+  pasta <- file.path(suite_dir, caso)
+  xml <- file.path(pasta, paste0(caso, "-sbml-l3v2.xml"))
+  if (!file.exists(xml)) {                # sem L3V2: usa a versão mais nova
+    xml <- tail(sort(list.files(pasta, "-sbml-l.*\\.xml$", full.names = TRUE)), 1)
+  }
+  avisos <- character()
+  m <- withCallingHandlers(read_sbml_to_dnar(xml), warning = function(w) {
+    avisos <<- c(avisos, conditionMessage(w)); invokeRestart("muffleWarning")
+  })
+  settings_file <- file.path(pasta, paste0(caso, "-settings.txt"))
+  s <- parse_sbml_settings(settings_file)
+  linhas <- readLines(settings_file, warn = FALSE)
+  valor <- function(chave) as.numeric(sub(".*:", "", grep(paste0("^", chave, ":"), linhas, value = TRUE)))
+  tempos <- seq(s$start, s$start + s$duration, length.out = s$steps + 1)
+  qmax <- max(m$ki) * fator_qmax
+  cmax <- max(max(m$ci), 1e-12) * fator_cmax
+
+  crn <- as.data.frame(react3(m$species, unname(m$ci), m$reactions, unname(m$ki), tempos,
+                              atol = atol, rtol = rtol))
+  d <- suppressWarnings(react_4domain(m$species, unname(m$ci), m$reactions, unname(m$ki),
+                                      qmax = qmax, cmax = cmax, alpha = 1, beta = 1, t = tempos,
+                                      atol = atol, rtol = rtol))
+  dna <- as.data.frame(d$behavior)[, c("time", m$species)]
+  ref <- read.csv(file.path(pasta, paste0(caso, "-results.csv")), check.names = FALSE)
+  esp <- intersect(m$species, names(ref))
+  erro_rel_dna <- max(vapply(esp, function(x) erro_rel(dna[[x]], ref[[x]]), numeric(1)))
+
+  png(file.path("results", paste0("caso", caso, "_dna.png")), width = 900, height = 500)
+  cores <- seq_along(esp)
+  matplot(ref$time, ref[esp], pch = 16, col = cores, xlab = "tempo", ylab = "valor",
+          main = paste("Caso", caso, ": pontos = referência, linha = CRN, tracejado = DNA"))
+  matlines(crn$time, crn[esp], lty = 1, lwd = 2, col = cores)
+  matlines(dna$time, dna[esp], lty = 2, lwd = 2, col = cores)
+  legend("right", esp, col = cores, lwd = 2)
+  invisible(dev.off())
+
+  data.frame(
+    caso = caso, reacoes = paste(m$reactions, collapse = "; "),
+    avisos_leitura = length(avisos), qmax = qmax, cmax = cmax,
+    reacoes_dna = length(d$reactions),
+    erro_rel_max_dna = erro_rel_dna,
+    crn_passa_tol_caso = passa_tol(crn, ref, esp, valor("absolute"), valor("relative")),
+    dna_passa_tol_caso = passa_tol(dna, ref, esp, valor("absolute"), valor("relative")),
+    dna_passa_tol_grupo = passa_tol(dna, ref, esp, 1e-6, 1e-4),
+    dna_passa_tol_dna   = passa_tol(dna, ref, esp, 1e-6, 1e-2)
+  )
+}
+
+exp3 <- do.call(rbind, lapply(casos_exp3, function(caso)
+  tryCatch(rodar_caso_dna(caso), error = function(e) {
+    cat("Caso", caso, "deu erro:", conditionMessage(e), "\n"); NULL })))
+cat("3) Casos da SBML Test Suite pelo circuito DNA\n")
+print(exp3[, setdiff(names(exp3), "reacoes")], row.names = FALSE)
+write.csv(exp3, "results/exp3_casos_suite.csv", row.names = FALSE)
