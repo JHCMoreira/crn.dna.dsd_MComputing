@@ -1,0 +1,19 @@
+"cause","status","count"
+"compartimentos_ou_unidades","falhou",150
+"divergencia_numerica","falhou",3
+"estequiometria","falhou",24
+"importacao_ou_validacao","falhou",1
+"mathml_ou_funcao","falhou",2
+"reacao_reversivel","falhou",6
+"semantica_de_especies","falhou",40
+"simulacao_ou_comparacao","falhou",43
+"compartimentos_ou_unidades","nao suportado",16
+"estequiometria","nao suportado",17
+"eventos","nao suportado",466
+"initial_assignment","nao suportado",197
+"mathml_ou_funcao","nao suportado",81
+"pacote_level_3","nao suportado",159
+"regras","nao suportado",560
+"semantica_de_especies","nao suportado",13
+"variavel_de_saida","nao suportado",33
+"nenhuma","passou",12

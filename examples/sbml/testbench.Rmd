@@ -44,9 +44,9 @@ e referencia da SBML Test Suite. Portanto, o exemplo abaixo executa a mesma
 rotina quando esses arquivos estiverem disponíveis no diretório indicado.
 
 ```{r one-case}
-suite_case_dir <- "examples/sbml/cases"
+suite_case_dir <- "external/sbml-test-suite/cases/semantic"
 case_result <- run_sbml_case(
-    case_id = "00028",
+    case_id = "00001",
     base_dir = suite_case_dir
 )
 case_result$status
@@ -63,7 +63,8 @@ suite <- run_sbml_cases(
 suite$summary
 ```
 
-Os campos `max_absolute_error` e `max_relative_error` devem ser comparados
-com as tolerâncias definidas. Casos sem `settings` ou arquivo de referência
-são marcados como `nao suportado`; erros de importação ou simulação aparecem
-como `falhou`.
+O criterio numerico e aplicado por ponto:
+`erro <= absoluto + relativo * abs(referencia)`.
+O preflight marca recursos ausentes como `nao suportado`; erros de
+importacao ou simulacao aparecem como `falhou`. Consulte `README.md`
+para a execucao em lote e os CSVs de tags, causas e compatibilidade observada.

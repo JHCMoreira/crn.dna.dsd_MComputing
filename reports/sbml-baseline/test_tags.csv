@@ -1,0 +1,71 @@
+"tag","status","count"
+"0D-Compartment","falhou",15
+"0D-Compartment","nao suportado",20
+"0D-Compartment","passou",4
+"Amount","falhou",225
+"Amount","nao suportado",1071
+"Amount","passou",12
+"AssignedConstantStoichiometry","falhou",13
+"AssignedConstantStoichiometry","nao suportado",117
+"AssignedVariableStoichiometry","falhou",2
+"AssignedVariableStoichiometry","nao suportado",71
+"BoolNumericSwap","falhou",1
+"BoolNumericSwap","nao suportado",10
+"BoundaryCondition","falhou",71
+"BoundaryCondition","nao suportado",174
+"BoundaryCondition","passou",2
+"comp:ConversionFactor","nao suportado",12
+"comp:ExtentConversionFactor","nao suportado",13
+"comp:SubmodelOutput","nao suportado",83
+"comp:TimeConversionFactor","nao suportado",21
+"Concentration","falhou",43
+"Concentration","nao suportado",67
+"ConstantSpecies","falhou",20
+"ConstantSpecies","nao suportado",35
+"ConstantSpecies","passou",1
+"ConversionFactors","falhou",3
+"ConversionFactors","nao suportado",78
+"DefaultValue","falhou",15
+"DefaultValue","nao suportado",70
+"DelayInEventAssignment","nao suportado",4
+"DelayInTrigger","nao suportado",4
+"EventIsNotPersistent","nao suportado",38
+"EventIsPersistent","nao suportado",46
+"EventT0Firing","nao suportado",40
+"EventUsesAssignmentTimeValues","nao suportado",30
+"EventUsesTriggerTimeValues","nao suportado",37
+"FastReaction","falhou",11
+"FastReaction","nao suportado",24
+"fbc:BoundEqual","nao suportado",2
+"fbc:BoundGreaterEqual","nao suportado",12
+"fbc:BoundLessEqual","nao suportado",12
+"fbc:MaximizeObjective","nao suportado",23
+"fbc:MinimizeObjective","nao suportado",14
+"fbc:NonStrict","nao suportado",9
+"HasOnlySubstanceUnits","falhou",15
+"HasOnlySubstanceUnits","nao suportado",91
+"HasOnlySubstanceUnits","passou",8
+"InitialValueReassigned","nao suportado",676
+"L3v2MathML","nao suportado",13
+"LocalParameters","falhou",16
+"LocalParameters","nao suportado",78
+"MultiCompartment","falhou",3
+"MultiCompartment","nao suportado",36
+"MultipleFastReactions","falhou",1
+"MultipleFastReactions","nao suportado",1
+"NoMathML","nao suportado",30
+"NonConstantCompartment","nao suportado",78
+"NonConstantParameter","nao suportado",432
+"NonUnityCompartment","falhou",46
+"NonUnityCompartment","nao suportado",248
+"NonUnityCompartment","passou",4
+"NonUnityStoichiometry","falhou",47
+"NonUnityStoichiometry","nao suportado",295
+"RandomEventExecution","nao suportado",16
+"ReversibleReaction","falhou",27
+"ReversibleReaction","nao suportado",36
+"SpeciesReferenceInMath","falhou",3
+"SpeciesReferenceInMath","nao suportado",42
+"UncommonMathML","falhou",2
+"UncommonMathML","nao suportado",55
+"VolumeConcentrationRates","nao suportado",19
