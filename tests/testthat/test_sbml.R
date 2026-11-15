@@ -43,6 +43,32 @@ test_that("bridge exports extended SBML metadata", {
     expect_null(parsed$reactions[[1]]$reactants[[1]]$id)
 })
 
+test_that("symbols table unlocks compartment kinetics and exposes volume", {
+    skip_if_not(sbml_available())
+
+    path <- file.path("..", "..", "examples", "sbml", "fixtures",
+                      "b1_compartimento.xml")
+    crn <- suppressWarnings(read_sbml_to_dnar(path))
+    expect_equal(crn$species, c("S1", "S2"))
+    expect_equal(crn$symbols$compartment, 2)
+    expect_equal(crn$symbols$k, 1)
+    expect_equal(crn$symbols$S1, 1)
+    expect_equal(crn$species_info$S1$volume, 2)
+    expect_equal(crn$species_info$S2$volume, 2)
+    # Amount-rate law compartment*k*S1 still reduces; Papel C divides by V.
+    expect_equal(crn$ki, 2)
+
+    stoich <- file.path("..", "..", "examples", "sbml", "fixtures",
+                        "b5_species_reference.xml")
+    crn_stoich <- suppressWarnings(read_sbml_to_dnar(stoich))
+    expect_equal(crn_stoich$symbols$S1_stoich, 1)
+    expect_equal(crn_stoich$ki, 0.5)
+
+    env <- sbml_math_env(list(x = 1.5, flag = TRUE))
+    expect_equal(eval(parse(text = "ceil(x)"), envir = env), 2)
+    expect_equal(eval(parse(text = "piecewise(10, flag, 0)"), envir = env), 10)
+})
+
 test_that("bridge preserves Inf/NaN and speciesReference ids", {
     skip_if_not(sbml_available())
 

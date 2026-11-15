@@ -272,6 +272,118 @@ sbml_reaction_side <- function(references) {
     paste(parts, collapse = " + ")
 }
 
+#' Build an evaluation environment for SBML MathML/L3 formulas.
+#'
+#' Maps common `formulaToL3String` identifiers onto R functions so kinetic
+#' laws can be evaluated with `eval(parse(text = formula), envir = env)`
+#' without textual rewriting.
+#'
+#' @param values Named list or vector of symbol values.
+#' @return An environment suitable for `eval()`.
+#' @export
+sbml_math_env <- function(values) {
+    env <- new.env(parent = baseenv())
+    env$ceil <- ceiling
+    env$ln <- log
+    env$exponentiale <- exp(1)
+    env$true <- TRUE
+    env$false <- FALSE
+    env$piecewise <- function(...) {
+        args <- list(...)
+        n <- length(args)
+        if (n == 0L) {
+            return(NA_real_)
+        }
+        for (i in seq(1L, max(n - 1L, 0L), by = 2L)) {
+            if (i + 1L > n) {
+                break
+            }
+            if (isTRUE(args[[i + 1L]])) {
+                return(args[[i]])
+            }
+        }
+        if (n %% 2L == 1L) args[[n]] else NA_real_
+    }
+    list2env(as.list(values), envir = env)
+    env
+}
+
+sbml_compartment_size <- function(parsed, compartment_id) {
+    if (is.null(compartment_id) || !nzchar(compartment_id)) {
+        return(NA_real_)
+    }
+    compartment <- parsed$compartments[[compartment_id]]
+    if (is.null(compartment) || is.null(compartment$size)) {
+        return(NA_real_)
+    }
+    as.numeric(compartment$size)
+}
+
+#' Collect SBML name -> value bindings used when evaluating kinetic laws.
+#'
+#' Includes compartment sizes, parameters, species (concentration, or amount
+#' when `hasOnlySubstanceUnits` is true), and stoichiometries keyed by
+#' `speciesReference` id.
+#'
+#' @param parsed Bridge output from `sbml_run_bridge()`.
+#' @return A named list of numeric symbol values.
+sbml_build_symbols <- function(parsed) {
+    symbols <- list()
+
+    for (name in names(parsed$compartments)) {
+        size <- parsed$compartments[[name]]$size
+        if (!is.null(size)) {
+            symbols[[name]] <- as.numeric(size)
+        }
+    }
+
+    for (name in names(parsed$parameters)) {
+        symbols[[name]] <- as.numeric(parsed$parameters[[name]])
+    }
+
+    for (item in parsed$species) {
+        # Bridge already stores concentration, or amount when hosu=true.
+        symbols[[item$id]] <- as.numeric(item$initial)
+    }
+
+    for (reaction in parsed$reactions) {
+        for (ref in c(reaction$reactants, reaction$products)) {
+            if (!is.null(ref$id) && nzchar(ref$id)) {
+                symbols[[ref$id]] <- as.numeric(ref$stoich)
+            }
+        }
+    }
+
+    symbols
+}
+
+#' Per-species SBML metadata, including compartment volume for Papel C.
+#'
+#' @param parsed Bridge output from `sbml_run_bridge()`.
+#' @return A named list of species info lists (`volume`, flags, ...).
+sbml_build_species_info <- function(parsed) {
+    info <- lapply(parsed$species, function(item) {
+        list(
+            compartment = item$compartment,
+            volume = sbml_compartment_size(parsed, item$compartment),
+            boundaryCondition = isTRUE(item$boundaryCondition),
+            constant = isTRUE(item$constant),
+            hasOnlySubstanceUnits = isTRUE(item$hasOnlySubstanceUnits),
+            conversionFactor = item$conversionFactor,
+            initialType = item$initialType
+        )
+    })
+    setNames(info, vapply(parsed$species, `[[`, character(1), "id"))
+}
+
+sbml_merge_values <- function(symbols, local_parameters) {
+    values <- symbols
+    for (name in names(local_parameters)) {
+        values[[name]] <- as.numeric(local_parameters[[name]])
+    }
+    values
+}
+
 #' Read an SBML model into a DNAr CRN.
 #'
 #' Species initial amounts are converted to concentrations using their
@@ -281,7 +393,7 @@ sbml_reaction_side <- function(references) {
 #'
 #' @param xml_file_path Path to an SBML document.
 #' @return A DNAr-compatible list containing `species`, `ci`, `reactions`,
-#'   `ki`, and SBML kinetic-law metadata.
+#'   `ki`, `symbols`, `species_info`, and SBML kinetic-law metadata.
 #' @export
 read_sbml_to_dnar <- function(xml_file_path) {
     parsed <- sbml_run_bridge(xml_file_path)
@@ -296,6 +408,8 @@ read_sbml_to_dnar <- function(xml_file_path) {
         species
     )
     global_parameters <- parsed$parameters
+    symbols <- sbml_build_symbols(parsed)
+    species_info <- sbml_build_species_info(parsed)
 
     reactions <- vapply(parsed$reactions, function(reaction) {
         paste(
@@ -309,32 +423,31 @@ read_sbml_to_dnar <- function(xml_file_path) {
     # parameter multiplied by exactly the reactant powers.
     ki <- vapply(parsed$reactions, function(reaction) {
         formula <- reaction$formula
-        values <- c(global_parameters, reaction$parameters)
+        values <- sbml_merge_values(symbols, reaction$parameters)
         if (is.null(formula) || !nzchar(formula)) {
             warning("Reaction '", reaction$id, "' has no kinetic law; using 1.")
             return(1)
         }
-        parameter_names <- names(values)
-        reactant_term <- paste(
-            vapply(reaction$reactants, function(ref) {
-                paste0(ref$species, "^", ref$stoich)
-            }, character(1)),
-            collapse = " * "
-        )
+        # Constants available to the mass-action regex (everything except
+        # species identifiers, which stay symbolic until substituted with 1).
+        constant_values <- values
+        for (name in species) {
+            constant_values[[name]] <- NULL
+        }
+        parameter_names <- names(constant_values)
         candidate <- formula
         for (name in parameter_names) {
             candidate <- gsub(
                 paste0("(?<![A-Za-z0-9_])", name, "(?![A-Za-z0-9_])"),
-                format(values[[name]], scientific = FALSE, trim = TRUE),
+                format(constant_values[[name]], scientific = FALSE, trim = TRUE),
                 candidate,
                 perl = TRUE
             )
         }
         candidate <- gsub("\\s+", "", candidate)
         candidate <- gsub("\\^1(?:\\.0+)?", "", candidate)
-        species_names <- vapply(parsed$species, `[[`, character(1), "id")
         residual <- formula
-        for (name in c(parameter_names, species_names)) {
+        for (name in c(parameter_names, species)) {
             residual <- gsub(
                 paste0("(?<![A-Za-z0-9_])", name, "(?![A-Za-z0-9_])"),
                 "",
@@ -344,7 +457,7 @@ read_sbml_to_dnar <- function(xml_file_path) {
         }
         residual <- gsub("\\s+", "", residual)
         references_only_reactants <- all(vapply(
-            species_names,
+            species,
             function(name) {
                 !grepl(
                     paste0("(?<![A-Za-z0-9_])", name, "(?![A-Za-z0-9_])"),
@@ -362,7 +475,7 @@ read_sbml_to_dnar <- function(xml_file_path) {
             !grepl("\\+", residual) &&
             references_only_reactants) {
             at_one <- candidate
-            for (name in species_names) {
+            for (name in species) {
                 at_one <- gsub(
                     paste0("(?<![A-Za-z0-9_])", name, "(?![A-Za-z0-9_])"),
                     "1",
@@ -375,17 +488,8 @@ read_sbml_to_dnar <- function(xml_file_path) {
                 return(as.numeric(value))
             }
         }
-        initial_values <- c(as.list(ci), as.list(values))
-        for (name in names(initial_values)) {
-            candidate <- gsub(
-                paste0("(?<![A-Za-z0-9_])", name, "(?![A-Za-z0-9_])"),
-                format(initial_values[[name]], scientific = FALSE, trim = TRUE),
-                candidate,
-                perl = TRUE
-            )
-        }
-        candidate <- gsub("\\bceil\\(", "ceiling(", candidate)
-        value <- suppressWarnings(eval(parse(text = candidate), envir = baseenv()))
+        math_env <- sbml_math_env(values)
+        value <- suppressWarnings(eval(parse(text = formula), envir = math_env))
         if (!is.numeric(value) || length(value) != 1L || !is.finite(value)) {
             warning("Could not reduce kinetic law for reaction '", reaction$id,
                     "'; using 1.")
@@ -402,9 +506,14 @@ read_sbml_to_dnar <- function(xml_file_path) {
             ci = ci,
             reactions = reactions,
             ki = ki,
+            symbols = symbols,
+            species_info = species_info,
             kinetic_laws = lapply(parsed$reactions, function(reaction) {
-                list(id = reaction$id, formula = reaction$formula,
-                     parameters = c(global_parameters, reaction$parameters))
+                list(
+                    id = reaction$id,
+                    formula = reaction$formula,
+                    parameters = sbml_merge_values(symbols, reaction$parameters)
+                )
             })
         ),
         class = c("dnar_sbml", "list")
