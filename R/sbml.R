@@ -20,6 +20,7 @@ sbml_python_script <- function() {
     script <- tempfile(fileext = ".py")
     writeLines(c(
         "import json",
+        "import math",
         "import sys",
         "import libsbml",
         "",
@@ -31,12 +32,35 @@ sbml_python_script <- function() {
         "    raise RuntimeError('SBML document does not contain a model')",
         "",
         "def number(value):",
-        "    return None if value is None else float(value)",
+        "    if value is None:",
+        "        return None",
+        "    value = float(value)",
+        "    if math.isnan(value):",
+        "        return 'NaN'",
+        "    if math.isinf(value):",
+        "        return 'Inf' if value > 0 else '-Inf'",
+        "    return value",
+        "",
+        "def optional_id(obj):",
+        "    return obj.getId() if obj.isSetId() else None",
+        "",
+        "def math_formula(obj):",
+        "    math = obj.getMath()",
+        "    return None if math is None else libsbml.formulaToL3String(math)",
         "",
         "compartments = {}",
+        "compartment_sizes = {}",
         "for i in range(model.getNumCompartments()):",
         "    compartment = model.getCompartment(i)",
-        "    compartments[compartment.getId()] = number(compartment.getSize())",
+        "    size = compartment.getSize() if compartment.isSetSize() else None",
+        "    compartment_sizes[compartment.getId()] = size",
+        "    compartments[compartment.getId()] = {",
+        "        'size': number(size),",
+        "        'spatialDimensions': (",
+        "            number(compartment.getSpatialDimensions())",
+        "            if compartment.isSetSpatialDimensions() else None",
+        "        )",
+        "    }",
         "",
         "parameters = {}",
         "for i in range(model.getNumParameters()):",
@@ -48,28 +72,45 @@ sbml_python_script <- function() {
         "for i in range(model.getNumSpecies()):",
         "    item = model.getSpecies(i)",
         "    initial = None",
+        "    initial_type = None",
         "    if item.isSetInitialConcentration():",
-        "        initial = number(item.getInitialConcentration())",
+        "        initial = item.getInitialConcentration()",
+        "        initial_type = 'concentration'",
         "    elif item.isSetInitialAmount():",
-        "        initial = number(item.getInitialAmount())",
-        "        size = compartments.get(item.getCompartment())",
+        "        initial = item.getInitialAmount()",
+        "        initial_type = 'amount'",
+        "        size = compartment_sizes.get(item.getCompartment())",
         "        if not item.getHasOnlySubstanceUnits() and size not in (None, 0):",
         "            initial = initial / size",
         "    if initial is None:",
         "        initial = 0.0",
-        "    species.append({'id': item.getId(), 'initial': initial})",
+        "    species.append({",
+        "        'id': item.getId(),",
+        "        'initial': number(initial),",
+        "        'initialType': initial_type,",
+        "        'compartment': item.getCompartment(),",
+        "        'boundaryCondition': item.getBoundaryCondition(),",
+        "        'constant': item.getConstant(),",
+        "        'hasOnlySubstanceUnits': item.getHasOnlySubstanceUnits(),",
+        "        'conversionFactor': (",
+        "            item.getConversionFactor() if item.isSetConversionFactor() else None",
+        "        )",
+        "    })",
+        "",
+        "def species_reference(ref):",
+        "    return {",
+        "        'id': optional_id(ref),",
+        "        'species': ref.getSpecies(),",
+        "        'stoich': number(ref.getStoichiometry())",
+        "    }",
         "",
         "reactions = []",
         "for i in range(model.getNumReactions()):",
         "    reaction = model.getReaction(i)",
-        "    reactants = []",
-        "    for j in range(reaction.getNumReactants()):",
-        "        ref = reaction.getReactant(j)",
-        "        reactants.append({'species': ref.getSpecies(), 'stoich': number(ref.getStoichiometry())})",
-        "    products = []",
-        "    for j in range(reaction.getNumProducts()):",
-        "        ref = reaction.getProduct(j)",
-        "        products.append({'species': ref.getSpecies(), 'stoich': number(ref.getStoichiometry())})",
+        "    reactants = [species_reference(reaction.getReactant(j))",
+        "                 for j in range(reaction.getNumReactants())]",
+        "    products = [species_reference(reaction.getProduct(j))",
+        "                for j in range(reaction.getNumProducts())]",
         "    formula = None",
         "    local_parameters = {}",
         "    law = reaction.getKineticLaw()",
@@ -88,6 +129,36 @@ sbml_python_script <- function() {
         "                      'products': products, 'formula': formula,",
         "                      'parameters': local_parameters})",
         "",
+        "initial_assignments = []",
+        "for i in range(model.getNumInitialAssignments()):",
+        "    assignment = model.getInitialAssignment(i)",
+        "    initial_assignments.append({",
+        "        'symbol': assignment.getSymbol(),",
+        "        'formula': math_formula(assignment)",
+        "    })",
+        "",
+        "rules = []",
+        "for i in range(model.getNumRules()):",
+        "    rule = model.getRule(i)",
+        "    type_code = rule.getTypeCode()",
+        "    if type_code == libsbml.SBML_ASSIGNMENT_RULE:",
+        "        rule_type = 'assignment'",
+        "        variable = rule.getVariable()",
+        "    elif type_code == libsbml.SBML_RATE_RULE:",
+        "        rule_type = 'rate'",
+        "        variable = rule.getVariable()",
+        "    elif type_code == libsbml.SBML_ALGEBRAIC_RULE:",
+        "        rule_type = 'algebraic'",
+        "        variable = None",
+        "    else:",
+        "        rule_type = 'unknown'",
+        "        variable = None",
+        "    rules.append({",
+        "        'type': rule_type,",
+        "        'variable': variable,",
+        "        'formula': math_formula(rule)",
+        "    })",
+        "",
         "errors = []",
         "warnings = []",
         "for i in range(document.getNumErrors()):",
@@ -98,11 +169,46 @@ sbml_python_script <- function() {
         "    else:",
         "        warnings.append(entry)",
         "",
-        "print(json.dumps({'species': species, 'parameters': parameters,",
-        "                   'reactions': reactions, 'errors': errors,",
-        "                   'warnings': warnings}))"
+        "print(json.dumps({",
+        "    'compartments': compartments,",
+        "    'species': species,",
+        "    'parameters': parameters,",
+        "    'reactions': reactions,",
+        "    'initialAssignments': initial_assignments,",
+        "    'rules': rules,",
+        "    'conversionFactor': (",
+        "        model.getConversionFactor() if model.isSetConversionFactor() else None",
+        "    ),",
+        "    'errors': errors,",
+        "    'warnings': warnings",
+        "}))"
     ), script)
     script
+}
+
+sbml_decode_number <- function(value) {
+    if (is.null(value) || length(value) != 1L) {
+        return(value)
+    }
+    if (is.character(value)) {
+        if (identical(value, "Inf")) {
+            return(Inf)
+        }
+        if (identical(value, "-Inf")) {
+            return(-Inf)
+        }
+        if (identical(value, "NaN")) {
+            return(NaN)
+        }
+    }
+    value
+}
+
+sbml_decode_numbers <- function(node) {
+    if (is.list(node)) {
+        return(lapply(node, sbml_decode_numbers))
+    }
+    sbml_decode_number(node)
 }
 
 sbml_run_bridge <- function(xml_file_path) {
@@ -132,7 +238,8 @@ sbml_run_bridge <- function(xml_file_path) {
     if (!is.null(status) && status != 0L) {
         stop("libSBML could not read the file: ", paste(output, collapse = "\n"))
     }
-    jsonlite::fromJSON(paste(output, collapse = ""), simplifyVector = FALSE)
+    parsed <- jsonlite::fromJSON(paste(output, collapse = ""), simplifyVector = FALSE)
+    sbml_decode_numbers(parsed)
 }
 
 #' Validate an SBML document using libSBML.
