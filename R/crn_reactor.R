@@ -374,54 +374,60 @@ react <- function(species, ci, reactions, ki, t, verbose = FALSE, engine = 'deso
 
     for(i in seq_along(ki)) {
 
-        k <- ki[[i]]
+        k_current <- ki[[i]]
 
         # --------------------------------------------------------
         # Constant rate
         # --------------------------------------------------------
 
-        if(is.numeric(k) && length(k) == 1) {
+        if(is.numeric(k_current) && length(k_current) == 1) {
 
-            kinetic_functions[[i]] <- function(t, y, species) {
-                k
-            }
+            kinetic_functions[[i]] <- local({
+                k_const <- k_current
+                function(t, y, species) {
+                    k_const
+                }
+            })
 
         # --------------------------------------------------------
         # Function
         # --------------------------------------------------------
 
-        } else if(is.function(k)) {
+        } else if(is.function(k_current)) {
 
-            nargs_k <- length(formals(k))
+            kinetic_functions[[i]] <- local({
+                k_fun <- k_current
+                nargs_k <- length(formals(k_fun))
 
-            # function(t)
-            if(nargs_k == 1) {
+                # function(t)
+                if(nargs_k == 1) {
 
-                kinetic_functions[[i]] <- function(t, y, species) {
-                    k(t)
+                    function(t, y, species) {
+                        k_fun(t)
+                    }
+
+                # function(t, y)
+                } else if(nargs_k == 2) {
+
+                    function(t, y, species) {
+                        k_fun(t, y)
+                    }
+
+                # function(t, y, species)
+                } else if(nargs_k >= 3) {
+
+                    function(t, y, species) {
+                        k_fun(t, y, species)
+                    }
+
+                } else {
+
+                    stop(sprintf(
+                        "Unsupported function signature in ki[%d]",
+                        i
+                    ))
                 }
-
-            # function(t, y)
-            } else if(nargs_k == 2) {
-
-                kinetic_functions[[i]] <- function(t, y, species) {
-                    k(t, y)
-                }
-
-            # function(t, y, species)
-            } else if(nargs_k >= 3) {
-
-                kinetic_functions[[i]] <- function(t, y, species) {
-                    k(t, y, species)
-                }
-
-            } else {
-
-                stop(sprintf(
-                    "Unsupported function signature in ki[%d]",
-                    i
-                ))
-            }
+            })
 
         } else {
 
