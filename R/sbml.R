@@ -428,7 +428,16 @@ sbml_build_outputs <- function(parsed, symbols, species) {
     lapply(symbols[keep], as.numeric)
 }
 
-#' Per-species SBML conversion factors (species override, else model, else 1).
+#' Per-species derivative scales for SBML kinetic laws.
+#'
+#' SBML kinetic laws are kept as amount/time. Each species then converts to
+#' its simulated unit via `react4(dx_scale=...)`:
+#' - concentration in a 1D/2D/3D compartment: `conversionFactor / V`
+#' - `hasOnlySubstanceUnits` or 0D compartment: `conversionFactor`
+#'
+#' Species-level `conversionFactor` overrides the model default; missing
+#' factors are treated as 1. Compartment size prefers the resolved symbol
+#' table (so `initialAssignment` to size is honored).
 #'
 #' @param parsed Bridge output from `sbml_run_bridge()`.
 #' @param symbols Resolved symbol table.
@@ -443,14 +452,37 @@ sbml_species_conversion_factors <- function(parsed, symbols) {
         if (is.null(cf_name) || !nzchar(cf_name)) {
             cf_name <- model_cf
         }
-        if (is.null(cf_name) || !nzchar(cf_name)) {
-            return(1)
+        cf <- 1
+        if (!is.null(cf_name) && nzchar(cf_name)) {
+            value <- symbols[[cf_name]]
+            if (is.null(value) || !is.finite(as.numeric(value))) {
+                stop("conversionFactor '", cf_name, "' sem valor numerico")
+            }
+            cf <- as.numeric(value)
         }
-        value <- symbols[[cf_name]]
-        if (is.null(value) || !is.finite(as.numeric(value))) {
-            stop("conversionFactor '", cf_name, "' sem valor numerico")
+        compartment <- parsed$compartments[[item$compartment]]
+        dims <- if (is.null(compartment)) {
+            NA_real_
+        } else {
+            as.numeric(compartment$spatialDimensions)
         }
-        as.numeric(value)
+        amount_state <- isTRUE(item$hasOnlySubstanceUnits) ||
+            (!is.na(dims) && dims == 0)
+        if (amount_state) {
+            return(cf)
+        }
+        volume <- symbols[[item$compartment]]
+        if (is.null(volume)) {
+            volume <- if (is.null(compartment)) NULL else compartment$size
+        }
+        volume <- as.numeric(volume)
+        if (!is.finite(volume) || volume <= 0) {
+            stop(
+                "volume invalido para especie '", item$id,
+                "' ao montar dx_scale"
+            )
+        }
+        cf / volume
     }, numeric(1)), vapply(parsed$species, `[[`, character(1), "id"))
 }
 
@@ -534,14 +566,14 @@ sbml_resolve_initial_assignments <- function(assignments, values) {
 #' Species initial amounts are converted to concentrations using their
 #' compartment size, except in 0D compartments (kept as quantity).
 #' `initialAssignment` formulas are resolved (Kahn topological order) before
-#' `ci` and `ki` are computed. Species/model `conversionFactor` values are
-#' exposed as `conversion_factors` for `react4(dx_scale=...)`. Constant
-#' compartments and parameters are listed in `outputs` for non-species
-#' reference columns. Reactions with mass-action kinetic laws expose their
-#' constant in `ki`. Non-mass-action laws are reported in `kinetic_laws`
-#' and use their value at the initial state as a compatibility fallback.
-#' Species with `boundaryCondition` or `constant` are listed in
-#' `fixed_species` for use with `forced_concentrations`.
+#' `ci` and `ki` are computed. Kinetic laws stay in amount/time; per-species
+#' `conversion_factors` (`CF/V`, or `CF` for hosu/0D) are meant for
+#' `react4(dx_scale=...)`. Constant compartments and parameters are listed
+#' in `outputs` for non-species reference columns. Reactions with mass-action
+#' kinetic laws expose their constant in `ki`. Non-mass-action laws are
+#' reported in `kinetic_laws` as full-propensity functions. Species with
+#' `boundaryCondition` or `constant` are listed in `fixed_species` for use
+#' with `forced_concentrations`.
 #'
 #' @param xml_file_path Path to an SBML document.
 #' @return A DNAr-compatible list containing `species`, `ci`, `reactions`,

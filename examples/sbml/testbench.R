@@ -446,10 +446,6 @@ run_sbml_case <- function(case_id, base_dir,
                         function(t) v
                     })
                 }
-                dx_scale <- model$conversion_factors
-                if (is.null(dx_scale) || all(dx_scale == 1)) {
-                    dx_scale <- NULL
-                }
                 simulation <- react4(
                     species = model$species,
                     ci = model$ci,
@@ -458,7 +454,7 @@ run_sbml_case <- function(case_id, base_dir,
                     t = integration_times,
                     engine = engine,
                     forced_concentrations = forced,
-                    dx_scale = dx_scale,
+                    dx_scale = model$conversion_factors,
                     rtol = 1e-10, atol = 1e-12
                 )
                 simulation <- as.data.frame(simulation, check.names = FALSE)

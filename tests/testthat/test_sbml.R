@@ -132,8 +132,18 @@ test_that("symbols table unlocks compartment kinetics and exposes volume", {
     expect_false("S1" %in% names(crn$outputs))
     expect_equal(crn$species_info$S1$volume, 2)
     expect_equal(crn$species_info$S2$volume, 2)
-    # Amount-rate law compartment*k*S1 still reduces; Papel C divides by V.
+    # Law stays amount/time (V*k at S=1 => 2); dx_scale is CF/V = 1/2.
     expect_equal(crn$ki, 2)
+    expect_equal(unname(crn$conversion_factors[c("S1", "S2")]), c(0.5, 0.5))
+    out <- react4(
+        species = crn$species,
+        ci = crn$ci,
+        reactions = crn$reactions,
+        ki = crn$ki,
+        t = c(0, 1),
+        dx_scale = crn$conversion_factors
+    )
+    expect_equal(out$S1[2], exp(-1), tolerance = 1e-4)
 
     stoich <- file.path("..", "..", "examples", "sbml", "fixtures",
                         "b5_species_reference.xml")
@@ -154,6 +164,7 @@ test_that("conversionFactor becomes dx_scale without changing mass-action order"
                       "b6_conversion_factor.xml")
     crn <- suppressWarnings(read_sbml_to_dnar(path))
     expect_equal(unname(crn$ci[["S1"]]), 2)
+    # V = 1, so dx_scale is just the conversion factor.
     expect_equal(crn$conversion_factors[["S1"]], 2)
     expect_equal(crn$conversion_factors[["S2"]], 0.5)
     expect_equal(crn$reactions, "S1 -> S2")
@@ -193,6 +204,8 @@ test_that("hasOnlySubstanceUnits keeps amount state in ci", {
     expect_equal(unname(crn$ci[["S2"]]), 2)
     expect_true(crn$species_info$S1$hasOnlySubstanceUnits)
     expect_false(crn$species_info$S2$hasOnlySubstanceUnits)
+    expect_equal(crn$conversion_factors[["S1"]], 1)
+    expect_equal(crn$conversion_factors[["S2"]], 0.5)
 })
 
 test_that("bridge preserves Inf/NaN and speciesReference ids", {
