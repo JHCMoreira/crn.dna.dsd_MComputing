@@ -1,0 +1,33 @@
+Baseline papel B (leitura SBML), gerado em 2026-11-15 23:33:48 UTC
+git HEAD: d75f2c76bc28f3df400c700e7d0a0b342ed12dd6
+
+== b1_compartimento ==
+   esperado: erro object 'compartment' not found
+   obtido: ERRO -> object 'compartment' not found
+
+== b2_contorno ==
+   esperado: S1 e S2 importadas; S1 de contorno tratada como dinamica
+   obtido: species = S1, S2; ci = S1=1, S2=0
+           reactions = S1 -> S2; ki = 1
+
+== b3_initial_assignment ==
+   esperado: IAs ignoradas; S1 inicial 0 (cadeia p1->p2->S1 perdida)
+   obtido: species = S1, S2; ci = S1=0, S2=0
+           reactions = S1 -> S2; ki = 1
+
+== b4_infinito ==
+   esperado: erro de parse JSON por Infinity no bridge
+   obtido: ERRO -> lexical error: invalid char in json text.
+          : 0.0}], "parameters": {"k": Infinity}, "reactions": [{"id":
+                     (right here) ------^
+
+
+== b5_species_reference ==
+   esperado: erro object 'S1_stoich' not found
+   obtido: ERRO -> object 'S1_stoich' not found
+
+== b6_conversion_factor ==
+   esperado: conversionFactor ignorado; S1 ci sem fator
+   obtido: species = S1, S2; ci = S1=2, S2=0
+           reactions = S1 -> S2; ki = 1
+

@@ -181,8 +181,15 @@ sbml_known_unsupported <- function(metadata) {
             paste(metadata$packages_present, collapse = ", ")
         ))
     }
+    rule_components <- c("AssignmentRule", "RateRule", "AlgebraicRule")
+    found_rules <- intersect(metadata$component_tags, rule_components)
+    if (length(found_rules) > 0L) {
+        return(paste0(
+            "regras SBML ainda nao aplicadas (apenas metadado em model$rules): ",
+            paste(found_rules, collapse = ", ")
+        ))
+    }
     unsupported_components <- c(
-        "AssignmentRule", "RateRule", "AlgebraicRule", "InitialAssignment",
         "EventNoDelay", "EventWithDelay", "EventPriority",
         "FunctionDefinition", "CSymbolDelay", "CSymbolRateOf"
     )
@@ -406,7 +413,13 @@ run_sbml_case <- function(case_id, base_dir,
                 stop("SBML invalido: ", paste(messages, collapse = "; "))
             }
             model <- read_sbml_to_dnar(model_file$path)
-            missing_variables <- setdiff(settings$variables, model$species)
+            output_names <- names(model$outputs)
+            if (is.null(output_names)) {
+                output_names <- character()
+            }
+            missing_variables <- setdiff(
+                settings$variables, c(model$species, output_names)
+            )
             if (length(missing_variables) > 0L) {
                 return(list(
                     unsupported = paste0(
@@ -423,22 +436,44 @@ run_sbml_case <- function(case_id, base_dir,
                 length.out = settings$steps + 1L
             )
             integration_times <- sort(unique(c(0, times)))
-            simulation <- react(
-                species = model$species,
-                ci = model$ci,
-                reactions = model$reactions,
-                ki = model$ki,
-                t = integration_times,
-                engine = engine,
-                rtol = 1e-10, atol = 1e-12
-            )
-            simulation <- as.data.frame(simulation, check.names = FALSE)
-            simulation <- simulation[match(times, simulation$time), , drop = FALSE]
-            simulation <- sbml_project_output(simulation, settings, model_file$path)
+            if (length(model$species) == 0L) {
+                simulation <- data.frame(time = times, check.names = FALSE)
+            } else {
+                forced <- NULL
+                if (length(model$fixed_species) > 0L) {
+                    forced <- lapply(model$ci[model$fixed_species], function(v) {
+                        force(v)
+                        function(t) v
+                    })
+                }
+                simulation <- react4(
+                    species = model$species,
+                    ci = model$ci,
+                    reactions = model$reactions,
+                    ki = model$ki,
+                    t = integration_times,
+                    engine = engine,
+                    forced_concentrations = forced,
+                    dx_scale = model$conversion_factors,
+                    rtol = 1e-10, atol = 1e-12
+                )
+                simulation <- as.data.frame(simulation, check.names = FALSE)
+                simulation <- simulation[match(times, simulation$time), , drop = FALSE]
+                simulation <- sbml_project_output(
+                    simulation, settings, model_file$path
+                )
+            }
+            for (name in intersect(output_names, settings$variables)) {
+                simulation[[name]] <- model$outputs[[name]]
+            }
             reference <- read.csv(
                 reference_file, check.names = FALSE,
                 na.strings = c("NaN", "nan")
             )
+            time_col <- match("time", tolower(names(reference)))
+            if (!is.na(time_col)) {
+                names(reference)[[time_col]] <- "time"
+            }
             comparison <- compare_sbml_results(
                 simulation,
                 reference,
