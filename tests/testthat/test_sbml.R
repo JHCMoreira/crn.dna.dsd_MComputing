@@ -43,6 +43,78 @@ test_that("bridge exports extended SBML metadata", {
     expect_null(parsed$reactions[[1]]$reactants[[1]]$id)
 })
 
+test_that("boundaryCondition/constant become fixed_species and stay forced", {
+    skip_if_not(sbml_available())
+
+    path <- file.path("..", "..", "examples", "sbml", "fixtures",
+                      "b2_contorno.xml")
+    crn <- suppressWarnings(read_sbml_to_dnar(path))
+    expect_equal(crn$fixed_species, "S1")
+    expect_true(crn$species_info$S1$boundaryCondition)
+    expect_false(crn$species_info$S1$constant)
+
+    forced <- sbml_forced_concentrations(crn)
+    expect_equal(names(forced), "S1")
+    expect_equal(forced$S1(0), 1)
+    expect_equal(forced$S1(10), 1)
+
+    out <- react4(
+        species = crn$species,
+        ci = crn$ci,
+        reactions = crn$reactions,
+        ki = crn$ki,
+        t = seq(0, 1, length.out = 11),
+        forced_concentrations = forced
+    )
+    expect_true(all(abs(out$S1 - 1) < 1e-10))
+    expect_gt(tail(out$S2, 1), 0.5)
+
+    multi <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="multi"><listOfCompartments>',
+        '<compartment id="c1" spatialDimensions="3" size="1" constant="true"/>',
+        '<compartment id="c2" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c1" initialConcentration="1"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies></model></sbml>'
+    ), multi)
+    expect_error(read_sbml_to_dnar(multi), "não suportado: múltiplos compartimentos")
+})
+
+test_that("0D compartment keeps amount without dividing by volume", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="zero_d"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="0" size="2" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialAmount="4"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="true" constant="false"/>',
+        '<species id="S2" compartment="c" initialAmount="0"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfParameters>',
+        '<parameter id="k" value="1" constant="true"/>',
+        '</listOfParameters><listOfReactions>',
+        '<reaction id="r1" reversible="false"><listOfReactants>',
+        '<speciesReference species="S1" stoichiometry="1" constant="true"/>',
+        '</listOfReactants><listOfProducts>',
+        '<speciesReference species="S2" stoichiometry="1" constant="true"/>',
+        '</listOfProducts><kineticLaw><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><times/><ci>k</ci><ci>S1</ci></apply></math></kineticLaw>',
+        '</reaction></listOfReactions></model></sbml>'
+    ), path)
+    crn <- suppressWarnings(read_sbml_to_dnar(path))
+    expect_equal(unname(crn$ci[["S1"]]), 4)
+    expect_equal(crn$fixed_species, "S1")
+    expect_equal(crn$species_info$S1$spatialDimensions, 0)
+})
+
 test_that("symbols table unlocks compartment kinetics and exposes volume", {
     skip_if_not(sbml_available())
 

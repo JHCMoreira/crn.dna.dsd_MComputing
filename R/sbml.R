@@ -71,6 +71,10 @@ sbml_python_script <- function() {
         "species = []",
         "for i in range(model.getNumSpecies()):",
         "    item = model.getSpecies(i)",
+        "    compartment_id = item.getCompartment()",
+        "    compartment_meta = compartments.get(compartment_id, {})",
+        "    dims = compartment_meta.get('spatialDimensions')",
+        "    is_zero_d = dims == 0",
         "    initial = None",
         "    initial_type = None",
         "    if item.isSetInitialConcentration():",
@@ -79,8 +83,11 @@ sbml_python_script <- function() {
         "    elif item.isSetInitialAmount():",
         "        initial = item.getInitialAmount()",
         "        initial_type = 'amount'",
-        "        size = compartment_sizes.get(item.getCompartment())",
-        "        if not item.getHasOnlySubstanceUnits() and size not in (None, 0):",
+        "        size = compartment_sizes.get(compartment_id)",
+        "        # 0D compartments have no volume: keep amount as quantity.",
+        "        if (not item.getHasOnlySubstanceUnits()",
+        "                and not is_zero_d",
+        "                and size not in (None, 0)):",
         "            initial = initial / size",
         "    if initial is None:",
         "        initial = 0.0",
@@ -88,7 +95,7 @@ sbml_python_script <- function() {
         "        'id': item.getId(),",
         "        'initial': number(initial),",
         "        'initialType': initial_type,",
-        "        'compartment': item.getCompartment(),",
+        "        'compartment': compartment_id,",
         "        'boundaryCondition': item.getBoundaryCondition(),",
         "        'constant': item.getConstant(),",
         "        'hasOnlySubstanceUnits': item.getHasOnlySubstanceUnits(),",
@@ -366,6 +373,10 @@ sbml_build_species_info <- function(parsed) {
         list(
             compartment = item$compartment,
             volume = sbml_compartment_size(parsed, item$compartment),
+            spatialDimensions = {
+                compartment <- parsed$compartments[[item$compartment]]
+                if (is.null(compartment)) NA_real_ else as.numeric(compartment$spatialDimensions)
+            },
             boundaryCondition = isTRUE(item$boundaryCondition),
             constant = isTRUE(item$constant),
             hasOnlySubstanceUnits = isTRUE(item$hasOnlySubstanceUnits),
@@ -374,6 +385,41 @@ sbml_build_species_info <- function(parsed) {
         )
     })
     setNames(info, vapply(parsed$species, `[[`, character(1), "id"))
+}
+
+#' Species that must stay at their initial value (`boundaryCondition`/`constant`).
+#'
+#' @param parsed Bridge output from `sbml_run_bridge()`.
+#' @return Character vector of fixed species ids.
+sbml_fixed_species <- function(parsed) {
+    if (length(parsed$species) == 0L) {
+        return(character())
+    }
+    ids <- vapply(parsed$species, `[[`, character(1), "id")
+    keep <- vapply(parsed$species, function(item) {
+        isTRUE(item$boundaryCondition) || isTRUE(item$constant)
+    }, logical(1))
+    ids[keep]
+}
+
+#' Build `react4` forcing functions that hold fixed species at `ci`.
+#'
+#' With the forced value equal to the initial state, the
+#' `(value - y) / tau` term in `react4` stays zero and the species does
+#' not drift.
+#'
+#' @param model DNAr SBML model from `read_sbml_to_dnar()`.
+#' @return Named list of constant functions, or `NULL` when none.
+#' @export
+sbml_forced_concentrations <- function(model) {
+    fixed <- model$fixed_species
+    if (is.null(fixed) || length(fixed) == 0L) {
+        return(NULL)
+    }
+    lapply(model$ci[fixed], function(v) {
+        force(v)
+        function(t) v
+    })
 }
 
 sbml_merge_values <- function(symbols, local_parameters) {
@@ -387,19 +433,25 @@ sbml_merge_values <- function(symbols, local_parameters) {
 #' Read an SBML model into a DNAr CRN.
 #'
 #' Species initial amounts are converted to concentrations using their
-#' compartment size. Reactions with mass-action kinetic laws expose their
-#' constant in `ki`. Non-mass-action laws are reported in `kinetic_laws` and
-#' use their value at the initial state as a compatibility fallback.
+#' compartment size, except in 0D compartments (kept as quantity). Reactions
+#' with mass-action kinetic laws expose their constant in `ki`. Non-mass-action
+#' laws are reported in `kinetic_laws` and use their value at the initial state
+#' as a compatibility fallback. Species with `boundaryCondition` or `constant`
+#' are listed in `fixed_species` for use with `forced_concentrations`.
 #'
 #' @param xml_file_path Path to an SBML document.
 #' @return A DNAr-compatible list containing `species`, `ci`, `reactions`,
-#'   `ki`, `symbols`, `species_info`, and SBML kinetic-law metadata.
+#'   `ki`, `symbols`, `species_info`, `fixed_species`, and SBML kinetic-law
+#'   metadata.
 #' @export
 read_sbml_to_dnar <- function(xml_file_path) {
     parsed <- sbml_run_bridge(xml_file_path)
     if (length(parsed$errors) > 0L) {
         messages <- vapply(parsed$errors, `[[`, character(1), "message")
         stop("Invalid SBML: ", paste(messages, collapse = "; "))
+    }
+    if (length(parsed$compartments) > 1L) {
+        stop("não suportado: múltiplos compartimentos")
     }
 
     species <- vapply(parsed$species, `[[`, character(1), "id")
@@ -410,6 +462,7 @@ read_sbml_to_dnar <- function(xml_file_path) {
     global_parameters <- parsed$parameters
     symbols <- sbml_build_symbols(parsed)
     species_info <- sbml_build_species_info(parsed)
+    fixed_species <- sbml_fixed_species(parsed)
 
     reactions <- vapply(parsed$reactions, function(reaction) {
         paste(
@@ -508,6 +561,7 @@ read_sbml_to_dnar <- function(xml_file_path) {
             ki = ki,
             symbols = symbols,
             species_info = species_info,
+            fixed_species = fixed_species,
             kinetic_laws = lapply(parsed$reactions, function(reaction) {
                 list(
                     id = reaction$id,

@@ -423,13 +423,21 @@ run_sbml_case <- function(case_id, base_dir,
                 length.out = settings$steps + 1L
             )
             integration_times <- sort(unique(c(0, times)))
-            simulation <- react(
+            forced <- NULL
+            if (length(model$fixed_species) > 0L) {
+                forced <- lapply(model$ci[model$fixed_species], function(v) {
+                    force(v)
+                    function(t) v
+                })
+            }
+            simulation <- react4(
                 species = model$species,
                 ci = model$ci,
                 reactions = model$reactions,
                 ki = model$ki,
                 t = integration_times,
                 engine = engine,
+                forced_concentrations = forced,
                 rtol = 1e-10, atol = 1e-12
             )
             simulation <- as.data.frame(simulation, check.names = FALSE)

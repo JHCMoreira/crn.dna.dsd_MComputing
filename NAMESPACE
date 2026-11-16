@@ -29,6 +29,8 @@ export(sbml_available)
 export(validate_sbml)
 export(read_sbml_to_dnar)
 export(sbml_to_dnar)
+export(sbml_math_env)
+export(sbml_forced_concentrations)
 
 # DNAr Logic
 export(circuit_add_gate)
