@@ -13,7 +13,9 @@ test_that("libSBML validates and imports the example case", {
     expect_equal(crn$species, c("S1", "S2"))
     expect_equal(unname(crn$ci), c(1, 0))
     expect_equal(crn$reactions, "S1 -> S2")
-    expect_equal(crn$ki, 0.96)
+    expect_true(is.function(crn$ki[[1]]))
+    expect_true(isTRUE(attr(crn$ki[[1]], "sbml_full_propensity")))
+    expect_equal(crn$ki[[1]](0, c(S1 = 1, S2 = 0)), 0.96)
     expect_equal(crn$kinetic_laws[[1]]$formula,
                  "factorial(ceil(p1 * S1)) * p2^-1")
 })
