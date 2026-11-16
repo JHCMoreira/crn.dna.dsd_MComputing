@@ -101,9 +101,9 @@ get_buff_modules <- function(reactions, ki, qmax, cmax) {
             aux_specs <- paste(bff_aux_species, as.character(i), sep = '')
             input_spec <- names(sigmas)[i]
 
-            forward_reaction <- paste(input_spec, '+', aux_specs[1], '-->',
+            forward_reaction <- paste(input_spec, '+', aux_specs[1], '->',
                                       aux_specs[2], '+', aux_specs[3])
-            backward_reaction <- paste(aux_specs[2], '+', aux_specs[3], '-->',
+            backward_reaction <- paste(aux_specs[2], '+', aux_specs[3], '->',
                                        input_spec, '+', aux_specs[1])
 
             new_bff_reactions <- c(new_bff_reactions,
@@ -278,11 +278,11 @@ translate_4domain_crn <- function(
                 qi_with_buff <- scaled_ks[i]
             }
 
-            new_reactions_for_i <- c(paste(l_p_specs[1], '+', aux[1], '-->',
+            new_reactions_for_i <- c(paste(l_p_specs[1], '+', aux[1], '->',
                                            aux[2], '+', aux[3]),
-                                     paste(aux[2], '+', aux[3], '-->',
+                                     paste(aux[2], '+', aux[3], '->',
                                            l_p_specs[1], '+', aux[1]),
-                                     paste(l_p_specs[2], '+', aux[2], '-->',
+                                     paste(l_p_specs[2], '+', aux[2], '->',
                                            aux[4]))
 
             new_species_for_i <- c(aux[1], aux[2], aux[3], aux[4])
@@ -291,7 +291,7 @@ translate_4domain_crn <- function(
 
             if(!isempty_part(right_part)) {
                 new_reactions_for_i <- c(new_reactions_for_i,
-                                         paste(aux[4], '+', aux[5], '-->',
+                                         paste(aux[4], '+', aux[5], '->',
                                                right_part))
                 new_species_for_i <- c(new_species_for_i, aux[5])
                 new_cis_for_i <- c(new_cis_for_i, cmax)
@@ -305,9 +305,9 @@ translate_4domain_crn <- function(
             right_part <- get_second_part(reactions[i])
 
             if(is_formation(reactions[[i]])) {
-                new_reactions_for_i <- c(paste(aux[1], '-->', aux[2]))
+                new_reactions_for_i <- c(paste(aux[1], '->', aux[2]))
             } else {
-                new_reactions_for_i <- c(paste(l_p_specs, '+', aux[1], '-->',
+                new_reactions_for_i <- c(paste(l_p_specs, '+', aux[1], '->',
                                                aux[2]))
             }
             new_species_for_i <- c(aux[1], aux[2])
@@ -329,7 +329,7 @@ translate_4domain_crn <- function(
 
             if(!isempty_part(right_part)) {
                 new_reactions_for_i <- c(new_reactions_for_i,
-                                         paste(aux[2], '+', aux[3], '-->',
+                                         paste(aux[2], '+', aux[3], '->',
                                                right_part))
                 new_species_for_i <- c(new_species_for_i, aux[3])
                 new_cis_for_i <- c(new_cis_for_i, cmax)
