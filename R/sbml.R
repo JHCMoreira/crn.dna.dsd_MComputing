@@ -402,6 +402,58 @@ sbml_fixed_species <- function(parsed) {
     ids[keep]
 }
 
+#' Constant non-species symbols exposed as simulation outputs.
+#'
+#' Compartment sizes and parameters (including those filled by
+#' `initialAssignment`) are returned; species and `speciesReference` ids
+#' are excluded.
+#'
+#' @param parsed Bridge output from `sbml_run_bridge()`.
+#' @param symbols Resolved symbol table.
+#' @param species Character vector of species ids.
+#' @return Named list of numeric constants.
+sbml_build_outputs <- function(parsed, symbols, species) {
+    ref_ids <- character()
+    for (reaction in parsed$reactions) {
+        for (ref in c(reaction$reactants, reaction$products)) {
+            if (!is.null(ref$id) && nzchar(ref$id)) {
+                ref_ids <- c(ref_ids, ref$id)
+            }
+        }
+    }
+    keep <- setdiff(names(symbols), c(species, ref_ids))
+    if (length(keep) == 0L) {
+        return(list())
+    }
+    lapply(symbols[keep], as.numeric)
+}
+
+#' Per-species SBML conversion factors (species override, else model, else 1).
+#'
+#' @param parsed Bridge output from `sbml_run_bridge()`.
+#' @param symbols Resolved symbol table.
+#' @return Named numeric vector aligned with species ids.
+sbml_species_conversion_factors <- function(parsed, symbols) {
+    if (length(parsed$species) == 0L) {
+        return(numeric())
+    }
+    model_cf <- parsed$conversionFactor
+    setNames(vapply(parsed$species, function(item) {
+        cf_name <- item$conversionFactor
+        if (is.null(cf_name) || !nzchar(cf_name)) {
+            cf_name <- model_cf
+        }
+        if (is.null(cf_name) || !nzchar(cf_name)) {
+            return(1)
+        }
+        value <- symbols[[cf_name]]
+        if (is.null(value) || !is.finite(as.numeric(value))) {
+            stop("conversionFactor '", cf_name, "' sem valor numerico")
+        }
+        as.numeric(value)
+    }, numeric(1)), vapply(parsed$species, `[[`, character(1), "id"))
+}
+
 #' Build `react4` forcing functions that hold fixed species at `ci`.
 #'
 #' With the forced value equal to the initial state, the
@@ -482,16 +534,19 @@ sbml_resolve_initial_assignments <- function(assignments, values) {
 #' Species initial amounts are converted to concentrations using their
 #' compartment size, except in 0D compartments (kept as quantity).
 #' `initialAssignment` formulas are resolved (Kahn topological order) before
-#' `ci` and `ki` are computed. Reactions with mass-action kinetic laws expose
-#' their constant in `ki`. Non-mass-action laws are reported in `kinetic_laws`
+#' `ci` and `ki` are computed. Species/model `conversionFactor` values are
+#' exposed as `conversion_factors` for `react4(dx_scale=...)`. Constant
+#' compartments and parameters are listed in `outputs` for non-species
+#' reference columns. Reactions with mass-action kinetic laws expose their
+#' constant in `ki`. Non-mass-action laws are reported in `kinetic_laws`
 #' and use their value at the initial state as a compatibility fallback.
 #' Species with `boundaryCondition` or `constant` are listed in
 #' `fixed_species` for use with `forced_concentrations`.
 #'
 #' @param xml_file_path Path to an SBML document.
 #' @return A DNAr-compatible list containing `species`, `ci`, `reactions`,
-#'   `ki`, `symbols`, `species_info`, `fixed_species`, and SBML kinetic-law
-#'   metadata.
+#'   `ki`, `symbols`, `outputs`, `conversion_factors`, `species_info`,
+#'   `fixed_species`, and SBML kinetic-law metadata.
 #' @export
 read_sbml_to_dnar <- function(xml_file_path) {
     parsed <- sbml_run_bridge(xml_file_path)
@@ -516,25 +571,39 @@ read_sbml_to_dnar <- function(xml_file_path) {
     species_info <- sbml_build_species_info(parsed)
     fixed_species <- sbml_fixed_species(parsed)
 
+    # DNAr parses a single net rate; SBML `reversible` with one kinetic law
+    # is still that net flux. Emitting `<->` breaks the `->` splitter.
     reactions <- vapply(parsed$reactions, function(reaction) {
         paste(
             sbml_reaction_side(reaction$reactants),
-            if (isTRUE(reaction$reversible)) "<->" else "->",
+            "->",
             sbml_reaction_side(reaction$products)
         )
     }, character(1))
+    conversion_factors <- sbml_species_conversion_factors(parsed, symbols)
+    outputs <- sbml_build_outputs(parsed, symbols, species)
+
+    sbml_full_rate <- function(value_or_fun) {
+        if (is.function(value_or_fun)) {
+            attr(value_or_fun, "sbml_full_propensity") <- TRUE
+            return(value_or_fun)
+        }
+        rate <- as.numeric(value_or_fun)
+        fun <- function(t, y) rate
+        attr(fun, "sbml_full_propensity") <- TRUE
+        fun
+    }
 
     # A kinetic-law formula is mass action when it consists of a constant
-    # parameter multiplied by exactly the reactant powers.
-    ki <- vapply(parsed$reactions, function(reaction) {
+    # parameter multiplied by exactly the reactant powers. Otherwise ki is
+    # a function that already includes the full propensity (no extra MA term).
+    ki <- lapply(parsed$reactions, function(reaction) {
         formula <- reaction$formula
         values <- sbml_merge_values(symbols, reaction$parameters)
         if (is.null(formula) || !nzchar(formula)) {
             warning("Reaction '", reaction$id, "' has no kinetic law; using 1.")
             return(1)
         }
-        # Constants available to the mass-action regex (everything except
-        # species identifiers, which stay symbolic until substituted with 1).
         constant_values <- values
         for (name in species) {
             constant_values[[name]] <- NULL
@@ -561,14 +630,21 @@ read_sbml_to_dnar <- function(xml_file_path) {
             )
         }
         residual <- gsub("\\s+", "", residual)
-        references_only_reactants <- all(vapply(
+        species_in_formula <- setNames(vapply(
             species,
             function(name) {
-                !grepl(
+                grepl(
                     paste0("(?<![A-Za-z0-9_])", name, "(?![A-Za-z0-9_])"),
                     formula,
                     perl = TRUE
-                ) || any(vapply(
+                )
+            },
+            logical(1)
+        ), species)
+        references_only_reactants <- all(vapply(
+            species,
+            function(name) {
+                !isTRUE(species_in_formula[[name]]) || any(vapply(
                     reaction$reactants,
                     function(ref) identical(ref$species, name),
                     logical(1)
@@ -590,20 +666,35 @@ read_sbml_to_dnar <- function(xml_file_path) {
             }
             value <- suppressWarnings(eval(parse(text = at_one), envir = baseenv()))
             if (is.numeric(value) && length(value) == 1L && is.finite(value)) {
+                if (!any(species_in_formula)) {
+                    # Constant law (e.g. speciesReference / parameter only):
+                    # stoichiometry still consumes/produces, but rate is bare.
+                    return(sbml_full_rate(value))
+                }
                 return(as.numeric(value))
             }
         }
-        math_env <- sbml_math_env(values)
-        value <- suppressWarnings(eval(parse(text = formula), envir = math_env))
-        if (!is.numeric(value) || length(value) != 1L || !is.finite(value)) {
+        expr <- tryCatch(parse(text = formula)[[1]], error = function(e) NULL)
+        if (is.null(expr)) {
             warning("Could not reduce kinetic law for reaction '", reaction$id,
                     "'; using 1.")
             return(1)
         }
-        warning("Reaction '", reaction$id,
-                "' is not mass action; ki uses its initial-state rate.")
-        as.numeric(value)
-    }, numeric(1))
+        constants <- constant_values
+        fun <- function(t, y) {
+            env <- sbml_math_env(c(constants, as.list(y)))
+            val <- suppressWarnings(eval(expr, envir = env))
+            if (!is.numeric(val) || length(val) != 1L || !is.finite(val)) {
+                return(0)
+            }
+            as.numeric(val)
+        }
+        sbml_full_rate(fun)
+    })
+    if (length(ki) > 0L &&
+        all(vapply(ki, function(x) is.numeric(x) && length(x) == 1L, logical(1)))) {
+        ki <- unlist(ki, use.names = FALSE)
+    }
 
     structure(
         list(
@@ -612,6 +703,8 @@ read_sbml_to_dnar <- function(xml_file_path) {
             reactions = reactions,
             ki = ki,
             symbols = symbols,
+            outputs = outputs,
+            conversion_factors = conversion_factors,
             species_info = species_info,
             fixed_species = fixed_species,
             kinetic_laws = lapply(parsed$reactions, function(reaction) {

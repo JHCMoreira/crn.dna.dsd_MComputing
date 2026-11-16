@@ -93,7 +93,7 @@ test_that("unsupported output variables retain the complete case record", {
     isolated <- new.env(parent = environment(run_sbml_case))
     isolated$sbml_available <- function() TRUE
     isolated$validate_sbml <- function(path) list(valid = TRUE, errors = list())
-    isolated$read_sbml_to_dnar <- function(path) list(species = "S1")
+    isolated$read_sbml_to_dnar <- function(path) list(species = "S1", outputs = list())
     runner <- run_sbml_case
     environment(runner) <- isolated
     result <- runner("00001", root, case_dir = root)
@@ -101,6 +101,32 @@ test_that("unsupported output variables retain the complete case record", {
     expect_equal(result$status, "nao suportado")
     expect_match(result$reason, "parameter1")
     expect_equal(nrow(sbml_result_row(result)), 1L)
+})
+
+test_that("constant parameter outputs are accepted without species", {
+    root <- tempfile("param-output-")
+    dir.create(root)
+    writeLines(c("start: 0", "duration: 1", "steps: 1",
+                 "variables: P", "absolute: 1e-6", "relative: 1e-4",
+                 "amount:", "concentration:"),
+               file.path(root, "00001-settings.txt"))
+    writeLines(c("testType: TimeCourse", "componentTags: Parameter"),
+               file.path(root, "00001-model.m"))
+    writeLines("<sbml/>", file.path(root, "00001-sbml-l3v2.xml"))
+    writeLines("time,P\n0,3.7\n1,3.7", file.path(root, "00001-results.csv"))
+    isolated <- new.env(parent = environment(run_sbml_case))
+    isolated$sbml_available <- function() TRUE
+    isolated$validate_sbml <- function(path) list(valid = TRUE, errors = list())
+    isolated$read_sbml_to_dnar <- function(path) {
+        list(species = character(), ci = numeric(), reactions = character(),
+             ki = numeric(), outputs = list(P = 3.7),
+             conversion_factors = numeric(), fixed_species = character())
+    }
+    runner <- run_sbml_case
+    environment(runner) <- isolated
+    result <- runner("00001", root, case_dir = root)
+    expect_equal(result$status, "passou")
+    expect_equal(result$comparison$max_absolute_error, 0)
 })
 
 test_that("different time grids and missing numerical values cannot pass", {

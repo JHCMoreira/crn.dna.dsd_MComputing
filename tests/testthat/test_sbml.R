@@ -125,6 +125,9 @@ test_that("symbols table unlocks compartment kinetics and exposes volume", {
     expect_equal(crn$symbols$compartment, 2)
     expect_equal(crn$symbols$k, 1)
     expect_equal(crn$symbols$S1, 1)
+    expect_equal(crn$outputs$compartment, 2)
+    expect_equal(crn$outputs$k, 1)
+    expect_false("S1" %in% names(crn$outputs))
     expect_equal(crn$species_info$S1$volume, 2)
     expect_equal(crn$species_info$S2$volume, 2)
     # Amount-rate law compartment*k*S1 still reduces; Papel C divides by V.
@@ -134,11 +137,60 @@ test_that("symbols table unlocks compartment kinetics and exposes volume", {
                         "b5_species_reference.xml")
     crn_stoich <- suppressWarnings(read_sbml_to_dnar(stoich))
     expect_equal(crn_stoich$symbols$S1_stoich, 1)
+    expect_false("S1_stoich" %in% names(crn_stoich$outputs))
     expect_equal(crn_stoich$ki, 0.5)
 
     env <- sbml_math_env(list(x = 1.5, flag = TRUE))
     expect_equal(eval(parse(text = "ceil(x)"), envir = env), 2)
     expect_equal(eval(parse(text = "piecewise(10, flag, 0)"), envir = env), 10)
+})
+
+test_that("conversionFactor becomes dx_scale without changing mass-action order", {
+    skip_if_not(sbml_available())
+
+    path <- file.path("..", "..", "examples", "sbml", "fixtures",
+                      "b6_conversion_factor.xml")
+    crn <- suppressWarnings(read_sbml_to_dnar(path))
+    expect_equal(unname(crn$ci[["S1"]]), 2)
+    expect_equal(crn$conversion_factors[["S1"]], 2)
+    expect_equal(crn$conversion_factors[["S2"]], 0.5)
+    expect_equal(crn$reactions, "S1 -> S2")
+    expect_equal(crn$outputs$s1conv, 2)
+    expect_equal(crn$outputs$modelconv, 0.5)
+
+    out <- react4(
+        species = crn$species,
+        ci = crn$ci,
+        reactions = crn$reactions,
+        ki = crn$ki,
+        t = c(0, 1),
+        dx_scale = crn$conversion_factors
+    )
+    # Mass-action S1->S2 with ki=1 and CF_S1=2 => dS1/dt = -2*S1.
+    expect_equal(out$S1[2], 2 * exp(-2), tolerance = 1e-4)
+})
+
+test_that("hasOnlySubstanceUnits keeps amount state in ci", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="hosu"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="2" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialAmount="8"',
+        ' hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>',
+        '<species id="S2" compartment="c" initialAmount="4"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_equal(unname(crn$ci[["S1"]]), 8)
+    expect_equal(unname(crn$ci[["S2"]]), 2)
+    expect_true(crn$species_info$S1$hasOnlySubstanceUnits)
+    expect_false(crn$species_info$S2$hasOnlySubstanceUnits)
 })
 
 test_that("bridge preserves Inf/NaN and speciesReference ids", {
