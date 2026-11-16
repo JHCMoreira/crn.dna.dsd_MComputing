@@ -182,7 +182,7 @@ sbml_known_unsupported <- function(metadata) {
         ))
     }
     unsupported_components <- c(
-        "AssignmentRule", "RateRule", "AlgebraicRule", "InitialAssignment",
+        "AssignmentRule", "RateRule", "AlgebraicRule",
         "EventNoDelay", "EventWithDelay", "EventPriority",
         "FunctionDefinition", "CSymbolDelay", "CSymbolRateOf"
     )

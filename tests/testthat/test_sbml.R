@@ -173,4 +173,34 @@ test_that("bridge preserves Inf/NaN and speciesReference ids", {
     expect_equal(parsed_ia$initialAssignments[[1]]$symbol, "p1")
     expect_equal(parsed_ia$initialAssignments[[1]]$formula, "2")
     expect_length(parsed_ia$rules, 0L)
+
+    crn_ia <- read_sbml_to_dnar(ia)
+    expect_equal(crn_ia$symbols$p1, 2)
+    expect_equal(crn_ia$symbols$p2, 6)
+    expect_equal(unname(crn_ia$ci[["S1"]]), 6)
+    expect_equal(crn_ia$ki, 1)
+})
+
+test_that("initialAssignment Kahn order detects cycles", {
+    expect_error(
+        sbml_resolve_initial_assignments(
+            list(
+                list(symbol = "a", formula = "b"),
+                list(symbol = "b", formula = "a")
+            ),
+            list()
+        ),
+        "cíclico"
+    )
+    resolved <- sbml_resolve_initial_assignments(
+        list(
+            list(symbol = "k2", formula = "k1 * 3"),
+            list(symbol = "k1", formula = "2"),
+            list(symbol = "S1", formula = "k2")
+        ),
+        list()
+    )
+    expect_equal(resolved$k1, 2)
+    expect_equal(resolved$k2, 6)
+    expect_equal(resolved$S1, 6)
 })

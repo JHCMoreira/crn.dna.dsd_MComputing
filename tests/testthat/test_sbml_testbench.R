@@ -75,6 +75,9 @@ test_that("known unsupported SBML constructs are explicit", {
     metadata$component_tags <- c("Species", "RateRule")
     expect_match(sbml_known_unsupported(metadata), "RateRule")
     expect_equal(sbml_failure_cause(metadata), "regras")
+
+    metadata$component_tags <- c("Species", "InitialAssignment")
+    expect_equal(sbml_known_unsupported(metadata), "")
 })
 
 test_that("unsupported output variables retain the complete case record", {

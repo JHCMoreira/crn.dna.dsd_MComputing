@@ -430,14 +430,63 @@ sbml_merge_values <- function(symbols, local_parameters) {
     values
 }
 
+#' Resolve SBML `initialAssignment` formulas in dependency order (Kahn).
+#'
+#' Only dependencies among assignment targets are ordered; other symbols are
+#' read from `values`. Cyclic target graphs raise an error.
+#'
+#' @param assignments List of lists with `symbol` and `formula`.
+#' @param values Named list or vector of already-known symbol values.
+#' @return Named list of values with assignment targets applied.
+sbml_resolve_initial_assignments <- function(assignments, values) {
+    if (length(assignments) == 0L) {
+        return(values)
+    }
+    targets <- vapply(assignments, `[[`, character(1), "symbol")
+    exprs <- setNames(
+        lapply(assignments, function(a) parse(text = a$formula)[[1]]),
+        targets
+    )
+    deps <- lapply(exprs, function(e) intersect(all.vars(e), targets))
+    indeg <- vapply(deps, length, integer(1))
+    queue <- targets[indeg == 0L]
+    ord <- character()
+    while (length(queue)) {
+        n <- queue[[1]]
+        queue <- queue[-1]
+        ord <- c(ord, n)
+        for (t in targets) {
+            if (n %in% deps[[t]]) {
+                indeg[[t]] <- indeg[[t]] - 1L
+                if (indeg[[t]] == 0L) {
+                    queue <- c(queue, t)
+                }
+            }
+        }
+    }
+    if (length(ord) < length(targets)) {
+        stop(
+            "initialAssignment cíclico: ",
+            paste(setdiff(targets, ord), collapse = ", ")
+        )
+    }
+    env <- sbml_math_env(values)
+    for (t in ord) {
+        assign(t, eval(exprs[[t]], envir = env), envir = env)
+    }
+    as.list(unlist(mget(union(names(values), targets), envir = env)))
+}
+
 #' Read an SBML model into a DNAr CRN.
 #'
 #' Species initial amounts are converted to concentrations using their
-#' compartment size, except in 0D compartments (kept as quantity). Reactions
-#' with mass-action kinetic laws expose their constant in `ki`. Non-mass-action
-#' laws are reported in `kinetic_laws` and use their value at the initial state
-#' as a compatibility fallback. Species with `boundaryCondition` or `constant`
-#' are listed in `fixed_species` for use with `forced_concentrations`.
+#' compartment size, except in 0D compartments (kept as quantity).
+#' `initialAssignment` formulas are resolved (Kahn topological order) before
+#' `ci` and `ki` are computed. Reactions with mass-action kinetic laws expose
+#' their constant in `ki`. Non-mass-action laws are reported in `kinetic_laws`
+#' and use their value at the initial state as a compatibility fallback.
+#' Species with `boundaryCondition` or `constant` are listed in
+#' `fixed_species` for use with `forced_concentrations`.
 #'
 #' @param xml_file_path Path to an SBML document.
 #' @return A DNAr-compatible list containing `species`, `ci`, `reactions`,
@@ -454,13 +503,16 @@ read_sbml_to_dnar <- function(xml_file_path) {
         stop("não suportado: múltiplos compartimentos")
     }
 
+    symbols <- sbml_resolve_initial_assignments(
+        parsed$initialAssignments,
+        sbml_build_symbols(parsed)
+    )
     species <- vapply(parsed$species, `[[`, character(1), "id")
     ci <- setNames(
-        vapply(parsed$species, function(item) as.numeric(item$initial), numeric(1)),
+        vapply(species, function(id) as.numeric(symbols[[id]]), numeric(1)),
         species
     )
     global_parameters <- parsed$parameters
-    symbols <- sbml_build_symbols(parsed)
     species_info <- sbml_build_species_info(parsed)
     fixed_species <- sbml_fixed_species(parsed)
 
