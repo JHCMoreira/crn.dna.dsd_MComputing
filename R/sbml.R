@@ -546,7 +546,8 @@ sbml_resolve_initial_assignments <- function(assignments, values) {
 #' @param xml_file_path Path to an SBML document.
 #' @return A DNAr-compatible list containing `species`, `ci`, `reactions`,
 #'   `ki`, `symbols`, `outputs`, `conversion_factors`, `species_info`,
-#'   `fixed_species`, and SBML kinetic-law metadata.
+#'   `fixed_species`, `rules` (metadata only; not applied), and SBML
+#'   kinetic-law metadata.
 #' @export
 read_sbml_to_dnar <- function(xml_file_path) {
     parsed <- sbml_run_bridge(xml_file_path)
@@ -707,6 +708,7 @@ read_sbml_to_dnar <- function(xml_file_path) {
             conversion_factors = conversion_factors,
             species_info = species_info,
             fixed_species = fixed_species,
+            rules = if (is.null(parsed$rules)) list() else parsed$rules,
             kinetic_laws = lapply(parsed$reactions, function(reaction) {
                 list(
                     id = reaction$id,

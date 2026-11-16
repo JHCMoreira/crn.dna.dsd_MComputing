@@ -233,6 +233,24 @@ test_that("bridge preserves Inf/NaN and speciesReference ids", {
     expect_equal(crn_ia$ki, 1)
 })
 
+test_that("rules are exposed as metadata without being applied", {
+    skip_if_not(sbml_available())
+
+    case_00296 <- file.path(
+        "..", "..", "external", "sbml-test-suite", "cases", "semantic",
+        "00296", "00296-sbml-l3v2.xml"
+    )
+    skip_if_not(file.exists(case_00296))
+
+    crn <- suppressWarnings(read_sbml_to_dnar(case_00296))
+    expect_gt(length(crn$rules), 0L)
+    expect_equal(crn$rules[[1]]$type, "assignment")
+    expect_true(nzchar(crn$rules[[1]]$variable))
+    expect_true(nzchar(crn$rules[[1]]$formula))
+    # Not applied: species initials come from the SBML species attributes.
+    expect_true(all(is.finite(crn$ci)))
+})
+
 test_that("initialAssignment Kahn order detects cycles", {
     expect_error(
         sbml_resolve_initial_assignments(

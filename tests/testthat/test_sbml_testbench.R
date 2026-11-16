@@ -73,8 +73,16 @@ test_that("known unsupported SBML constructs are explicit", {
     metadata <- empty_sbml_metadata()
     metadata$test_type <- "TimeCourse"
     metadata$component_tags <- c("Species", "RateRule")
-    expect_match(sbml_known_unsupported(metadata), "RateRule")
+    expect_match(
+        sbml_known_unsupported(metadata),
+        "regras SBML ainda nao aplicadas.*RateRule"
+    )
     expect_equal(sbml_failure_cause(metadata), "regras")
+
+    metadata$component_tags <- c("Species", "AssignmentRule", "AlgebraicRule")
+    expect_match(sbml_known_unsupported(metadata), "model\\$rules")
+    expect_match(sbml_known_unsupported(metadata), "AssignmentRule")
+    expect_match(sbml_known_unsupported(metadata), "AlgebraicRule")
 
     metadata$component_tags <- c("Species", "InitialAssignment")
     expect_equal(sbml_known_unsupported(metadata), "")

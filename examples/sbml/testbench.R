@@ -181,8 +181,15 @@ sbml_known_unsupported <- function(metadata) {
             paste(metadata$packages_present, collapse = ", ")
         ))
     }
+    rule_components <- c("AssignmentRule", "RateRule", "AlgebraicRule")
+    found_rules <- intersect(metadata$component_tags, rule_components)
+    if (length(found_rules) > 0L) {
+        return(paste0(
+            "regras SBML ainda nao aplicadas (apenas metadado em model$rules): ",
+            paste(found_rules, collapse = ", ")
+        ))
+    }
     unsupported_components <- c(
-        "AssignmentRule", "RateRule", "AlgebraicRule",
         "EventNoDelay", "EventWithDelay", "EventPriority",
         "FunctionDefinition", "CSymbolDelay", "CSymbolRateOf"
     )
