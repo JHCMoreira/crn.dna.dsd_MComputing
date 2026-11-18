@@ -15,3 +15,7 @@ matlab/data
 .venv
 .vscode
 .Rbuildignore
+external/sbml-test-suite/
+results/sbml*/
+!reports/sbml-baseline/*.csv
+!reports/papel-b/*.csv
