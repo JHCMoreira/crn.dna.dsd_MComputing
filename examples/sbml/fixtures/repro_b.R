@@ -10,6 +10,7 @@ dir <- if (length(args) >= 1L) args[1L] else "examples/sbml/fixtures"
 output <- file.path(dir, "baseline_acdd21a_b.txt")
 
 source(file.path("R", "sbml.R"))
+source(file.path("R", "sbml_kinetics.R"))
 
 esperado <- list(
     b1_compartimento = "erro object 'compartment' not found",

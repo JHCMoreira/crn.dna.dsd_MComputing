@@ -12,6 +12,7 @@ source(file.path("R", "parser.R"))
 source(file.path("R", "util_functions.R"))
 source(file.path("R", "crn_reactor.R"))
 source(file.path("R", "sbml.R"))
+source(file.path("R", "sbml_kinetics.R"))
 
 esperado <- list(
     c0_controle = "reacao 'A + B -> C', ki = 0.5, aceito como mass-action",
