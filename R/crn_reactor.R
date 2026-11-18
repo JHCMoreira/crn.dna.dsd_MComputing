@@ -374,54 +374,60 @@ react <- function(species, ci, reactions, ki, t, verbose = FALSE, engine = 'deso
 
     for(i in seq_along(ki)) {
 
-        k <- ki[[i]]
+        k_current <- ki[[i]]
 
         # --------------------------------------------------------
         # Constant rate
         # --------------------------------------------------------
 
-        if(is.numeric(k) && length(k) == 1) {
+        if(is.numeric(k_current) && length(k_current) == 1) {
 
-            kinetic_functions[[i]] <- function(t, y, species) {
-                k
-            }
+            kinetic_functions[[i]] <- local({
+                k_const <- k_current
+                function(t, y, species) {
+                    k_const
+                }
+            })
 
         # --------------------------------------------------------
         # Function
         # --------------------------------------------------------
 
-        } else if(is.function(k)) {
+        } else if(is.function(k_current)) {
 
-            nargs_k <- length(formals(k))
+            kinetic_functions[[i]] <- local({
+                k_fun <- k_current
+                nargs_k <- length(formals(k_fun))
 
-            # function(t)
-            if(nargs_k == 1) {
+                # function(t)
+                if(nargs_k == 1) {
 
-                kinetic_functions[[i]] <- function(t, y, species) {
-                    k(t)
+                    function(t, y, species) {
+                        k_fun(t)
+                    }
+
+                # function(t, y)
+                } else if(nargs_k == 2) {
+
+                    function(t, y, species) {
+                        k_fun(t, y)
+                    }
+
+                # function(t, y, species)
+                } else if(nargs_k >= 3) {
+
+                    function(t, y, species) {
+                        k_fun(t, y, species)
+                    }
+
+                } else {
+
+                    stop(sprintf(
+                        "Unsupported function signature in ki[%d]",
+                        i
+                    ))
                 }
-
-            # function(t, y)
-            } else if(nargs_k == 2) {
-
-                kinetic_functions[[i]] <- function(t, y, species) {
-                    k(t, y)
-                }
-
-            # function(t, y, species)
-            } else if(nargs_k >= 3) {
-
-                kinetic_functions[[i]] <- function(t, y, species) {
-                    k(t, y, species)
-                }
-
-            } else {
-
-                stop(sprintf(
-                    "Unsupported function signature in ki[%d]",
-                    i
-                ))
-            }
+            })
 
         } else {
 
@@ -1066,6 +1072,8 @@ react4 <- function(
                       ## amount, removals) at specific times,
                       ## independent of any reaction. Supported by
                       ## both the 'desolve' and 'diffeqr' engines.
+    dx_scale = NULL, ## optional named/unnamed numeric scales applied to
+                      ## each species derivative (SBML conversionFactor).
     ...
 ) {
     if(!engine %in% c('desolve', 'diffeqr')) {
@@ -1117,8 +1125,10 @@ react4 <- function(
     })
 
     kinetic_functions <- vector("list", length(ki))
+    full_propensity <- logical(length(ki))
     for(i in seq_along(ki)) {
         k_current <- ki[[i]]
+        full_propensity[[i]] <- isTRUE(attr(k_current, "sbml_full_propensity"))
         if(is.numeric(k_current) && length(k_current) == 1) {
             kinetic_functions[[i]] <- local({
                 k_const <- k_current
@@ -1170,6 +1180,19 @@ react4 <- function(
         }
     }
 
+    if (!is.null(dx_scale)) {
+        dx_scale <- as.numeric(dx_scale)
+        if (length(dx_scale) == 1L && length(species) > 1L) {
+            dx_scale <- rep(dx_scale, length(species))
+        }
+        if (!is.null(names(dx_scale))) {
+            dx_scale <- dx_scale[species]
+        }
+        if (length(dx_scale) != length(species) || any(!is.finite(dx_scale))) {
+            stop("dx_scale must provide one finite numeric scale per species")
+        }
+    }
+
     fx <- function(t, y, parms) {
         y_named <- setNames(as.numeric(y), species)
 
@@ -1186,7 +1209,8 @@ react4 <- function(
 
             k_val <- kinetic_functions[[i]](t, y_named, species)
 
-            if(length(react_map) == 1 && is.na(react_map)) {
+            if (full_propensity[[i]] ||
+                (length(react_map) == 1 && is.na(react_map))) {
                 mass_action_term <- 1
             } else {
                 mass_action_term <- prod(y_eval[react_map]^v_exp_reactants[[i]])
@@ -1196,6 +1220,9 @@ react4 <- function(
 
         dy <- as.numeric(Mt %*% v)
         names(dy) <- species
+        if (!is.null(dx_scale)) {
+            dy <- dy * dx_scale
+        }
 
         if(!is.null(forced_concentrations)) {
             for(forced_species in names(forced_concentrations)) {

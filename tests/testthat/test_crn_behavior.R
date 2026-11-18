@@ -162,3 +162,19 @@ test_that(
         )
     }
 )
+
+test_that(
+    'react keeps distinct constant ki values across reactions',
+    {
+        # Closure bug without local(): every reaction silently used the last ki.
+        out <- react(
+            species   = c('A', 'B'),
+            ci        = c(1, 1),
+            reactions = c('A -> 0', 'B -> 0'),
+            ki        = c(1, 2),
+            t         = c(0, 1)
+        )
+        expect_equal(out$A[2], exp(-1), tolerance = 1e-5)
+        expect_equal(out$B[2], exp(-2), tolerance = 1e-5)
+    }
+)

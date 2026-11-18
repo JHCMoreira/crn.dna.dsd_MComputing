@@ -1,0 +1,23 @@
+
+===== test_sbml_kinetics.R =====
+tmp_run_bb78d2c6d4: ..........................................
+
+══ DONE ════════════════════════════════════════════════════════════════════════
+test_sbml_kinetics.R -> testes: 6, falhas: 0, erros: 0, pulados: 0
+
+===== test_sbml.R =====
+tmp_run_bb50224688: ................................................................SS....
+
+══ Skipped ═════════════════════════════════════════════════════════════════════
+1. bridge preserves Inf/NaN and speciesReference ids ('tmp_run_bb50224688.R:222:5') - Reason: file.exists(case_00951) is not TRUE
+
+2. rules are exposed as metadata without being applied ('tmp_run_bb50224688.R:257:5') - Reason: file.exists(case_00296) is not TRUE
+
+══ DONE ════════════════════════════════════════════════════════════════════════
+test_sbml.R -> testes: 11, falhas: 0, erros: 0, pulados: 2
+
+===== test_sbml_testbench.R =====
+tmp_run_bb30e33f69: .................................
+
+══ DONE ════════════════════════════════════════════════════════════════════════
+test_sbml_testbench.R -> testes: 10, falhas: 0, erros: 0, pulados: 0
