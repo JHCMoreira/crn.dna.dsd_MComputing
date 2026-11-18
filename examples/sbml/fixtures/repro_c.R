@@ -45,7 +45,8 @@ for (path in arquivos) {
         cat("   obtido: ERRO ->", conditionMessage(resultado), "\n")
     } else {
         cat("   obtido: reactions =", paste(resultado$reactions, collapse = " | "), "\n")
-        cat("           ki        =", paste(resultado$ki, collapse = ", "), "\n")
+        ki_txt <- vapply(as.list(resultado$ki), function(x) if (is.function(x)) "<funcao>" else as.character(x), character(1))
+        cat("           ki        =", paste(ki_txt, collapse = ", "), "\n")
     }
     for (aviso in avisos) cat("   aviso:", aviso, "\n")
 }
