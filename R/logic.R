@@ -1,14 +1,16 @@
-source('R/4domain_reactor.R')
-source('R/ANALOG_GATE_LIB.R')
-source('R/analysis.R')
-source('R/crn_reactor.R')
-source('R/dsd.R')
-source('R/ELECTRO_LIB.R')
-source('R/GATE_LIB.R')
-source('R/io.R')
-source('R/neuron_hjelmfelt.R')
-source('R/parser.R')
-source('R/util_functions.R')
+if (!isNamespace(topenv())) {
+    source('R/4domain_reactor.R')
+    source('R/ANALOG_GATE_LIB.R')
+    source('R/analysis.R')
+    source('R/crn_reactor.R')
+    source('R/dsd.R')
+    source('R/ELECTRO_LIB.R')
+    source('R/GATE_LIB.R')
+    source('R/io.R')
+    source('R/neuron_hjelmfelt.R')
+    source('R/parser.R')
+    source('R/util_functions.R')
+}
 
 #library(binaryLogic)
 
@@ -220,44 +222,45 @@ plot_circuit_facet <- function (results, signals, newColNames, legend = TRUE) {
   return(g)
 }
 
-# JK Simulation -------
+## Example for manual execution with source().
+if (!isNamespace(topenv())) {
+    timing  <- seq(0, 36000, 200)
+    circuit <- DNArLogic::make_circuit(timing)
 
-timing  <- seq(0, 36000, 200)
-circuit <- DNArLogic::make_circuit(timing)
+    counter <- make_sync_counter('ctr', 1, 0, n=2)
+    jkff <- make_jkff('jkff', 0, 0, 0)
 
-counter <- make_sync_counter('ctr', 1, 0, n=2)
-jkff <- make_jkff('jkff', 0, 0, 0)
+    circuit <- circuit_insert_gate(circuit, counter)
+    circuit <- circuit_insert_gate(circuit, jkff)
 
-circuit <- circuit_insert_gate(circuit, counter)
-circuit <- circuit_insert_gate(circuit, jkff)
+    clock <- make_rgbyclock('clock')
+    circuit <- circuit_insert_gate(circuit, clock)
+    circuit <- circuit_insert_gate(circuit, make_link_gate(clock$species, counter$inputs[[2]]))
+    circuit <- circuit_insert_gate(circuit, make_link_gate(clock$species, jkff$inputs[[3]], negated = TRUE))
+    circuit <- circuit_insert_gate(circuit, make_link_gate(counter$outputs[[1]], jkff$inputs[[1]])) # J
+    circuit <- circuit_insert_gate(circuit, make_link_gate(counter$outputs[[2]], jkff$inputs[[2]])) # K
 
-clock <- make_rgbyclock('clock')
-circuit <- circuit_insert_gate(circuit, clock)
-circuit <- circuit_insert_gate(circuit, make_link_gate(clock$species, counter$inputs[[2]]))
-circuit <- circuit_insert_gate(circuit, make_link_gate(clock$species, jkff$inputs[[3]], negated = TRUE))
-circuit <- circuit_insert_gate(circuit, make_link_gate(counter$outputs[[1]], jkff$inputs[[1]])) # J
-circuit <- circuit_insert_gate(circuit, make_link_gate(counter$outputs[[2]], jkff$inputs[[2]])) # K
+    compiled <- DNArLogic::circuit_compile(circuit)
+    nreactions_4bcounter <- length(compiled$reactions)
 
-compiled <- DNArLogic::circuit_compile(circuit)
-nreactions_4bcounter <- length(compiled$reactions)
+    results <- react(
+      species   = compiled$species,
+      ci        = compiled$ci,
+      reactions = compiled$reactions,
+      ki        = compiled$ki,
+      t         = compiled$t
+    )
 
-results <- react(
-  species   = compiled$species,
-  ci        = compiled$ci,
-  reactions = compiled$reactions,
-  ki        = compiled$ki,
-  t         = compiled$t
-)
+    speciesToPlot <- c(counter$outputs[[1]]$value1,
+                       counter$outputs[[2]]$value1,
+                       clock$species$value0,
+                       jkff$output$value1)
 
-speciesToPlot <- c(counter$outputs[[1]]$value1,
-                   counter$outputs[[2]]$value1,
-                   clock$species$value0,
-                   jkff$output$value1)
-
-newColNames <- c('time', 'Value J', 'Value K', 'Clock', 'Value Q')
-ctr_g <- plot_circuit_facet(results, speciesToPlot, newColNames, legend = FALSE)
-ctr_g <- ctr_g + ggplot2::geom_vline(xintercept=8000)
-ctr_g <- ctr_g + ggplot2::geom_vline(xintercept=16000)
-ctr_g <- ctr_g + ggplot2::geom_vline(xintercept=24100)
-ctr_g <- ctr_g + ggplot2::geom_vline(xintercept=32100)
-print(ctr_g)
+    newColNames <- c('time', 'Value J', 'Value K', 'Clock', 'Value Q')
+    ctr_g <- plot_circuit_facet(results, speciesToPlot, newColNames, legend = FALSE)
+    ctr_g <- ctr_g + ggplot2::geom_vline(xintercept=8000)
+    ctr_g <- ctr_g + ggplot2::geom_vline(xintercept=16000)
+    ctr_g <- ctr_g + ggplot2::geom_vline(xintercept=24100)
+    ctr_g <- ctr_g + ggplot2::geom_vline(xintercept=32100)
+    print(ctr_g)
+}

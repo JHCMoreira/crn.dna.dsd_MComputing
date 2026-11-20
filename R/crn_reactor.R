@@ -1,4 +1,7 @@
-source("R/sto_reactor.R")
+# Package loading already defines the stochastic reactor in the same namespace.
+if (!isNamespace(topenv())) {
+    source("R/sto_reactor.R")
+}
 
 # DNAr is a program used to simulate formal Chemical Reaction Networks
 # and the ones based on DNA.

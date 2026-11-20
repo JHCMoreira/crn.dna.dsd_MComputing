@@ -1,5 +1,7 @@
-library(pracma)   # for signal processing utilities
-library(xtable)   # for generating LaTeX tables
+if (!isNamespace(topenv())) {
+    library(pracma)   # for signal processing utilities
+    library(xtable)   # for generating LaTeX tables
+}
 
 
 # ' Estimate time constants for capacitor voltage response

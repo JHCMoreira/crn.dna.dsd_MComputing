@@ -12,9 +12,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN install2.r --error --skipinstalled \
     deSolve \
+    GillespieSSA2 \
+    Rdpack \
     stringr \
     assertthat \
     ggplot2 \
+    reshape2 \
     dplyr \
     jsonlite \
     testthat

@@ -1,4 +1,4 @@
-in#' Digital-to-Analog Converter for Molecular Computing
+#' Digital-to-Analog Converter for Molecular Computing
 #' 
 #' Converts binary digital signals to analog concentrations
 #' Uses weighted summation approach similar to R-2R ladder

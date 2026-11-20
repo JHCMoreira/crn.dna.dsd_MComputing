@@ -1,5 +1,7 @@
-library(ggplot2) # plot()
-library(dplyr) # mutate()
+if (!isNamespace(topenv())) {
+    library(ggplot2) # plot()
+    library(dplyr) # mutate()
+}
 
 React_circuit <- function(circuit, forced_concentrations = NULL, engine = 'desolve', verbose = FALSE, ...) {
   return(react4(

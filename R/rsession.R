@@ -19,7 +19,9 @@
 #   }
 # }
 
-library(JuliaCall)
+if (!isNamespace(topenv())) {
+    library(JuliaCall)
 
-JuliaCall:::julia_version()
+    JuliaCall:::julia_version()
+}
 
