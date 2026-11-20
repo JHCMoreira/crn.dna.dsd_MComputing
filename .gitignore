@@ -18,3 +18,4 @@ matlab/data
 external/sbml-test-suite/
 results/sbml*/
 !reports/sbml-baseline/*.csv
+!reports/sbml-cp3/**/*.csv

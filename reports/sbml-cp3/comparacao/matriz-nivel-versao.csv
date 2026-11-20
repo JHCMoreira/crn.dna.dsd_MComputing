@@ -1,0 +1,19 @@
+"variante","rodada","status","casos"
+"l2v5","antes","passou",5
+"l3v1","antes","passou",4
+"l3v2","antes","passou",341
+"l2v5","depois","passou",5
+"l3v1","depois","passou",4
+"l3v2","depois","passou",345
+"l2v5","antes","falhou",32
+"l3v1","antes","falhou",22
+"l3v2","antes","falhou",130
+"l2v5","depois","falhou",32
+"l3v1","depois","falhou",22
+"l3v2","depois","falhou",126
+"l2v5","antes","nao suportado",48
+"l3v1","antes","nao suportado",20
+"l3v2","antes","nao suportado",1221
+"l2v5","depois","nao suportado",48
+"l3v1","depois","nao suportado",20
+"l3v2","depois","nao suportado",1221

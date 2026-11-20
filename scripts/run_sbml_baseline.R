@@ -30,6 +30,8 @@ manifest <- list(
     git_head = system2("git", c("rev-parse", "HEAD"), stdout = TRUE),
     worktree_dirty = length(system2("git", c("status", "--porcelain"), stdout = TRUE)) > 0L,
     suite_commit = system2("git", c("-C", shQuote(suite_dir), "rev-parse", "HEAD"), stdout = TRUE),
+    r = as.character(getRversion()),
+    deSolve = as.character(utils::packageVersion("deSolve")),
     libsbml = system2("python3", c("-c", shQuote("import libsbml; print(libsbml.getLibSBMLDottedVersion())")), stdout = TRUE),
     solver = "deSolve/lsoda", rtol = 1e-10, atol = 1e-12,
     absolute = absolute, relative = relative,

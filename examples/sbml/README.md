@@ -51,6 +51,7 @@ Essa lista deve ser revista após as correções de B/C. A opção
 ## Resultados
 
 A rodada inicial está em [reports/sbml-baseline](../../reports/sbml-baseline/RESUMO.md).
+A comparação do CP3 está em [reports/sbml-cp3](../../reports/sbml-cp3/RESUMO.md).
 Novas execuções escrevem em `results/sbml/`:
 
 | Arquivo | Conteúdo |
@@ -74,6 +75,14 @@ Isso permite comparar a base com os próximos merges sem sobrescrever os
 resultados anteriores. Em Windows/OneDrive, a leitura da suíte pode ser lenta;
 uma cópia no disco Linux do container evita esse custo.
 
+Para comparar duas rodadas feitas nas mesmas condições, passe os diretórios
+que contêm `manifest.json` e `cases.csv`. O script compara por ID e exporta
+mudanças de status e matrizes por recurso e variante SBML.
+
+```bash
+Rscript scripts/compare_sbml_runs.R results/sbml-antes results/sbml-depois results/sbml-comparacao
+```
+
 ## Verificação
 
 ```powershell
@@ -82,6 +91,12 @@ docker run --rm -v "${PWD}:/workspaces/dnar" dnar-sbml Rscript -e "testthat::tes
 
 Os testes cobrem leitura dos casos, tolerâncias, tempos, conversão de unidades
 e consolidação de resultados com erro ou recurso não suportado.
+
+A imagem também permite testar a instalação e a carga do pacote:
+
+```powershell
+docker run --rm -v "${PWD}:/workspaces/dnar:ro" dnar-sbml R CMD INSTALL .
+```
 
 ## Referências
 

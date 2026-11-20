@@ -1,0 +1,10 @@
+"antes","depois","casos"
+"passou","passou",350
+"falhou","passou",4
+"nao suportado","passou",0
+"passou","falhou",0
+"falhou","falhou",180
+"nao suportado","falhou",0
+"passou","nao suportado",0
+"falhou","nao suportado",0
+"nao suportado","nao suportado",1289

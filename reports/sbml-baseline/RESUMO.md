@@ -14,9 +14,9 @@ Os limites usados foram `1e-6` absoluto e `1e-4` relativo, combinados por
 ponto. Com as tolerâncias originais dos casos, passaram 7 das 48 trajetórias
 que chegaram à comparação. Esses dois critérios não devem ser confundidos.
 
-Os casos não suportados foram excluídos pelo filtro de recursos ausentes no
-importador. Os demais podem falhar durante a importação, na simulação ou na
-comparação. A coluna `reason` da [tabela completa](cases.csv) registra o motivo.
+Dos 1.542 casos sem suporte, 1.461 foram excluídos antes da validação e 81
+foram classificados na importação por pedirem variáveis de saída que o DNAr
+não expunha. O motivo está na coluna `reason`. [Tabela completa](cases.csv)
 
 ## Casos analisados
 

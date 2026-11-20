@@ -1,0 +1,6 @@
+"case_id","sbml_variant","antes","depois","comparado_antes","comparado_depois","passou_tol_suite_antes","passou_tol_suite_depois","erro_absoluto_antes","erro_absoluto_depois","motivo_antes","motivo_depois"
+"00022","l3v2","falhou","passou",TRUE,TRUE,FALSE,TRUE,1.45065910621216e-06,2.24629189489629e-11,"",""
+"00804","l3v2","falhou","passou",TRUE,TRUE,FALSE,TRUE,0.20360847471842,2.05901418137699e-09,"",""
+"00806","l3v2","falhou","passou",TRUE,TRUE,FALSE,TRUE,0.328415667500263,1.16030451913218e-09,"",""
+"00807","l3v2","falhou","passou",TRUE,TRUE,FALSE,TRUE,0.0397740674124355,7.61098961632456e-10,"",""
+"01066","l3v2","falhou","falhou",TRUE,FALSE,FALSE,,3.09442649840238,,"","missing value where TRUE/FALSE needed"
