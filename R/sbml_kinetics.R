@@ -360,6 +360,7 @@ sbml_general_rate_function <- function(formula, constants) {
     expr <- parse(text = formula)[[1]]
     fun <- function(t, y) {
         env <- sbml_math_env(c(constants, as.list(y)))
+        env$time <- t
         val <- suppressWarnings(eval(expr, envir = env))
         if (!is.numeric(val) || length(val) != 1L || !is.finite(val)) {
             return(0)

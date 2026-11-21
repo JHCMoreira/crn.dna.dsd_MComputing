@@ -561,3 +561,30 @@ test_that("initialAssignment without math is ignored and does not read stdin", {
         list(list(symbol = "p", formula = NULL)), list(p = 3)
     ), list(p = 3))
 })
+
+test_that("csymbols time and avogadro are available in SBML math", {
+    env <- sbml_math_env(list(k = 2))
+    expect_equal(eval(parse(text = "time"), envir = env), 0)
+    expect_equal(eval(parse(text = "avogadro"), envir = env), 6.02214076e23)
+
+    skip_if_not(sbml_available())
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="csym_time"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialConcentration="1"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfReactions>',
+        '<reaction id="r1" reversible="false"><listOfReactants>',
+        '<speciesReference species="S1" stoichiometry="1" constant="true"/>',
+        '</listOfReactants><kineticLaw><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><times/><ci>S1</ci>',
+        '<csymbol encoding="text" definitionURL="http://www.sbml.org/sbml/symbols/time">t</csymbol>',
+        '</apply></math></kineticLaw></reaction></listOfReactions></model></sbml>'
+    ), path)
+    crn <- suppressWarnings(read_sbml_to_dnar(path))
+    expect_equal(crn$ki[[1]](3, c(S1 = 2)), 6)
+})

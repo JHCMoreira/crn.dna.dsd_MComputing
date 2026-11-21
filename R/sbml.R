@@ -314,6 +314,10 @@ sbml_math_env <- function(values) {
     env$exponentiale <- exp(1)
     env$true <- TRUE
     env$false <- FALSE
+    # csymbols: `time` is 0 outside a simulation (initialAssignment);
+    # kinetic closures overwrite it with the solver time. Avogadro per L3v2.
+    env$time <- 0
+    env$avogadro <- 6.02214076e23
     env$piecewise <- function(...) {
         args <- list(...)
         n <- length(args)
@@ -935,6 +939,7 @@ read_sbml_to_dnar <- function(xml_file_path) {
         constants <- constant_values
         fun <- function(t, y) {
             env <- sbml_math_env(c(constants, as.list(y)))
+            env$time <- t
             val <- suppressWarnings(eval(expr, envir = env))
             if (!is.numeric(val) || length(val) != 1L || !is.finite(val)) {
                 stop(
