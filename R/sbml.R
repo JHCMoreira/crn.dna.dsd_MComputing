@@ -630,6 +630,12 @@ sbml_merge_values <- function(symbols, local_parameters) {
 #' @param values Named list or vector of already-known symbol values.
 #' @return Named list of values with assignment targets applied.
 sbml_resolve_initial_assignments <- function(assignments, values) {
+    # L3v2 allows <initialAssignment> without <math>: it has no effect. Drop
+    # it here; `parse(text = NULL)` would read R's stdin (in Rscript, the
+    # rest of the calling script).
+    assignments <- Filter(function(a) {
+        !is.null(a$formula) && length(a$formula) == 1L && nzchar(a$formula)
+    }, assignments)
     if (length(assignments) == 0L) {
         return(values)
     }
@@ -771,6 +777,10 @@ read_sbml_to_dnar <- function(xml_file_path) {
         stop("não suportado: múltiplos compartimentos")
     }
 
+    # An initialAssignment without <math> has no effect (L3v2).
+    parsed$initialAssignments <- Filter(function(a) {
+        !is.null(a$formula) && length(a$formula) == 1L && nzchar(a$formula)
+    }, parsed$initialAssignments)
     assigned_symbols <- if (length(parsed$initialAssignments) == 0L) {
         character()
     } else {
@@ -795,6 +805,14 @@ read_sbml_to_dnar <- function(xml_file_path) {
         strict = TRUE
     )
     parsed <- sbml_apply_resolved_stoichiometry(parsed, symbols)
+    # species_info$volume (used to report amounts) must use the size resolved
+    # by initialAssignment, the same one used to convert initialAmount.
+    for (name in names(parsed$compartments)) {
+        size <- symbols[[name]]
+        if (length(size) == 1L && !is.na(size)) {
+            parsed$compartments[[name]]$size <- as.numeric(size)
+        }
+    }
     sbml_check_species_initial_defined(parsed, symbols, assigned_symbols)
     species <- vapply(parsed$species, `[[`, character(1), "id")
     ci <- setNames(

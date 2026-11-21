@@ -310,7 +310,7 @@ empty_sbml_metadata <- function() {
     )
 }
 
-sbml_project_output <- function(simulation, settings, xml_file) {
+sbml_project_output <- function(simulation, settings, xml_file, model = NULL) {
     script <- file.path(sbml_project_root, "scripts", "sbml_output_units.py")
     output <- system2("python3", c(shQuote(script), shQuote(normalizePath(xml_file))),
                       stdout = TRUE, stderr = TRUE)
@@ -330,6 +330,12 @@ sbml_project_output <- function(simulation, settings, xml_file) {
         if ((want_amount && !isTRUE(info$amount_state)) ||
             (want_concentration && isTRUE(info$amount_state))) {
             volume <- info$volume
+            # Prefer the importer's volume: it honors initialAssignment on the
+            # compartment, which the libSBML attribute read above does not.
+            imported <- if (is.null(model)) NULL else model$species_info[[name]]$volume
+            if (length(imported) == 1L && is.finite(imported)) {
+                volume <- imported
+            }
             if (is.null(volume) || !is.finite(volume) || volume <= 0) {
                 stop("Volume ausente ou invalido para converter ", name)
             }
@@ -461,7 +467,7 @@ run_sbml_case <- function(case_id, base_dir,
                 simulation <- as.data.frame(simulation, check.names = FALSE)
                 simulation <- simulation[match(times, simulation$time), , drop = FALSE]
                 simulation <- sbml_project_output(
-                    simulation, settings, model_file$path
+                    simulation, settings, model_file$path, model = model
                 )
             }
             for (name in intersect(output_names, settings$variables)) {

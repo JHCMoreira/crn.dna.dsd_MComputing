@@ -510,3 +510,54 @@ test_that("species without any initial value is an explicit error", {
     )), with_ia)
     expect_equal(unname(read_sbml_to_dnar(with_ia)$ci[["S1"]]), 2)
 })
+
+test_that("species_info volume uses compartment size from initialAssignment", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="ia_vol_info"><listOfCompartments>',
+        '<compartment id="C" spatialDimensions="3" size="5.4" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="C" initialAmount="1"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfParameters>',
+        '<parameter id="k2" value="50" constant="true"/>',
+        '</listOfParameters><listOfInitialAssignments>',
+        '<initialAssignment symbol="C"><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><divide/><ci>k2</ci><cn>50</cn></apply></math></initialAssignment>',
+        '</listOfInitialAssignments></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_equal(unname(crn$ci[["S1"]]), 1)
+    # concentration * volume must give back the declared amount (1 mole)
+    expect_equal(crn$species_info$S1$volume, 1)
+})
+
+test_that("initialAssignment without math is ignored and does not read stdin", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="ia_no_math"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="2" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialAmount="8"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfParameters>',
+        '<parameter id="p" value="3" constant="true"/>',
+        '</listOfParameters><listOfInitialAssignments>',
+        '<initialAssignment symbol="p"/><initialAssignment symbol="S1"/>',
+        '</listOfInitialAssignments></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_equal(crn$symbols$p, 3)
+    expect_equal(unname(crn$ci[["S1"]]), 4)
+    expect_equal(sbml_resolve_initial_assignments(
+        list(list(symbol = "p", formula = NULL)), list(p = 3)
+    ), list(p = 3))
+})
