@@ -27,6 +27,7 @@ tryCatch({
     source(file.path("R", "util_functions.R"), local = environment())
     source(file.path("R", "crn_reactor.R"), local = environment())
     source(file.path("R", "sbml.R"), local = environment())
+    source(file.path("R", "sbml_kinetics.R"), local = environment())
 }, finally = {
     setwd(sbml_previous_wd)
 })

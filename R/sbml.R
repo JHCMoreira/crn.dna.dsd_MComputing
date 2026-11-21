@@ -830,6 +830,22 @@ read_sbml_to_dnar <- function(xml_file_path) {
         }
         sbml_full_rate(fun)
     })
+
+    # Arbitro por arvore sintatica (R/sbml_kinetics.R): uma lei so e acao de
+    # massas se for constante * produto dos reagentes com expoente = estequiometria.
+    # Se o detector diz "general" e a heuristica acima devolveu um numero, ela
+    # era um falso positivo (ex.: lei `k*A` para a reacao A+B->C): usa a lei
+    # completa como funcao de propensao em vez de k.
+    kinetic_info <- sbml_classify_model(parsed, symbols, species)
+    for (i in seq_along(ki)) {
+        if (kinetic_info[[i]]$class == "general" && is.numeric(ki[[i]])) {
+            reaction <- parsed$reactions[[i]]
+            values <- sbml_merge_values(symbols, reaction$parameters)
+            ki[[i]] <- sbml_general_rate_function(
+                reaction$formula, values[setdiff(names(values), species)]
+            )
+        }
+    }
     if (length(ki) > 0L &&
         all(vapply(ki, function(x) is.numeric(x) && length(x) == 1L, logical(1)))) {
         ki <- unlist(ki, use.names = FALSE)
@@ -847,6 +863,7 @@ read_sbml_to_dnar <- function(xml_file_path) {
             species_info = species_info,
             fixed_species = fixed_species,
             rules = if (is.null(parsed$rules)) list() else parsed$rules,
+            kinetic_info = kinetic_info,
             kinetic_laws = lapply(parsed$reactions, function(reaction) {
                 list(
                     id = reaction$id,
