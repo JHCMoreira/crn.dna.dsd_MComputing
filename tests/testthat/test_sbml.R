@@ -444,3 +444,69 @@ test_that("speciesReference stoichiometry from initialAssignment is applied", {
     expect_equal(crn$reactions, "2S1 -> S2")
     expect_equal(crn$symbols$ref1, 2)
 })
+
+test_that("events are exposed as metadata without being applied", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="event_meta"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialConcentration="1"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfEvents>',
+        '<event id="e1" useValuesFromTriggerTime="true">',
+        '<trigger initialValue="false" persistent="true">',
+        '<math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><geq/><csymbol encoding="text" definitionURL="http://www.sbml.org/sbml/symbols/time">t</csymbol>',
+        '<cn>5</cn></apply></math></trigger>',
+        '<delay><math xmlns="http://www.w3.org/1998/Math/MathML"><cn>1</cn></math></delay>',
+        '<listOfEventAssignments><eventAssignment variable="S1">',
+        '<math xmlns="http://www.w3.org/1998/Math/MathML"><cn>3</cn></math>',
+        '</eventAssignment></listOfEventAssignments></event>',
+        '</listOfEvents></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_length(crn$events, 1L)
+    ev <- crn$events[[1]]
+    expect_equal(ev$id, "e1")
+    expect_match(ev$trigger, ">=")
+    expect_false(ev$initialValue)
+    expect_true(ev$persistent)
+    expect_equal(ev$delay, "1")
+    expect_null(ev$priority)
+    expect_true(ev$useValuesFromTriggerTime)
+    expect_equal(ev$assignments[[1]]$variable, "S1")
+    expect_equal(ev$assignments[[1]]$formula, "3")
+    # metadata only: ci is untouched
+    expect_equal(unname(crn$ci[["S1"]]), 1)
+})
+
+test_that("species without any initial value is an explicit error", {
+    skip_if_not(sbml_available())
+
+    model <- function(extra) c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="no_initial"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies>', extra, '</model></sbml>'
+    )
+    path <- tempfile(fileext = ".xml")
+    writeLines(model(character()), path)
+    expect_error(read_sbml_to_dnar(path), "sem valor inicial")
+
+    with_ia <- tempfile(fileext = ".xml")
+    writeLines(model(c(
+        '<listOfInitialAssignments><initialAssignment symbol="S1">',
+        '<math xmlns="http://www.w3.org/1998/Math/MathML"><cn>2</cn></math>',
+        '</initialAssignment></listOfInitialAssignments>'
+    )), with_ia)
+    expect_equal(unname(read_sbml_to_dnar(with_ia)$ci[["S1"]]), 2)
+})

@@ -81,8 +81,7 @@ sbml_python_script <- function() {
         "    elif item.isSetInitialAmount():",
         "        initial = item.getInitialAmount()",
         "        initial_type = 'amount'",
-        "    if initial is None:",
-        "        initial = 0.0",
+        "    # No initial value: keep None; R decides (IA/rule or explicit error).",
         "    species.append({",
         "        'id': item.getId(),",
         "        'initial': number(initial),",
@@ -158,6 +157,33 @@ sbml_python_script <- function() {
         "        'formula': math_formula(rule)",
         "    })",
         "",
+        "events = []",
+        "for i in range(model.getNumEvents()):",
+        "    event = model.getEvent(i)",
+        "    trigger = event.getTrigger() if event.isSetTrigger() else None",
+        "    delay = event.getDelay() if event.isSetDelay() else None",
+        "    priority = event.getPriority() if event.isSetPriority() else None",
+        "    events.append({",
+        "        'id': optional_id(event),",
+        "        'trigger': math_formula(trigger) if trigger is not None else None,",
+        "        'initialValue': (",
+        "            trigger.getInitialValue()",
+        "            if trigger is not None and trigger.isSetInitialValue() else None",
+        "        ),",
+        "        'persistent': (",
+        "            trigger.getPersistent()",
+        "            if trigger is not None and trigger.isSetPersistent() else None",
+        "        ),",
+        "        'delay': math_formula(delay) if delay is not None else None,",
+        "        'priority': math_formula(priority) if priority is not None else None,",
+        "        'useValuesFromTriggerTime': event.getUseValuesFromTriggerTime(),",
+        "        'assignments': [",
+        "            {'variable': a.getVariable(), 'formula': math_formula(a)}",
+        "            for a in (event.getEventAssignment(j)",
+        "                      for j in range(event.getNumEventAssignments()))",
+        "        ]",
+        "    })",
+        "",
         "errors = []",
         "warnings = []",
         "for i in range(document.getNumErrors()):",
@@ -175,6 +201,7 @@ sbml_python_script <- function() {
         "    'reactions': reactions,",
         "    'initialAssignments': initial_assignments,",
         "    'rules': rules,",
+        "    'events': events,",
         "    'conversionFactor': (",
         "        model.getConversionFactor() if model.isSetConversionFactor() else None",
         "    ),",
@@ -345,8 +372,9 @@ sbml_build_symbols <- function(parsed) {
     }
 
     for (item in parsed$species) {
-        # Raw initialAmount / initialConcentration from the bridge.
-        symbols[[item$id]] <- as.numeric(item$initial)
+        # Raw initialAmount / initialConcentration from the bridge; NA when the
+        # species declares no initial value (resolved by IA or rejected later).
+        symbols[[item$id]] <- if (is.null(item$initial)) NA_real_ else as.numeric(item$initial)
     }
 
     for (reaction in parsed$reactions) {
@@ -676,6 +704,39 @@ sbml_apply_resolved_stoichiometry <- function(parsed, symbols) {
     parsed
 }
 
+#' Reject species that end up with no initial value.
+#'
+#' A species without `initialAmount`/`initialConcentration` must get its value
+#' from an `initialAssignment` or a rule. Previously the bridge silently used
+#' 0; now the missing value is an explicit error. Rule targets keep 0 because
+#' rules are exposed as metadata only (those cases are filtered as unsupported).
+#'
+#' @param parsed Bridge output from `sbml_run_bridge()`.
+#' @param symbols Symbol table after initial assignments and unit conversion.
+#' @param assigned_symbols Ids set by `initialAssignment`.
+#' @return Invisibly `TRUE`; errors otherwise.
+sbml_check_species_initial_defined <- function(parsed, symbols, assigned_symbols) {
+    rule_targets <- unlist(lapply(parsed$rules, `[[`, "variable"))
+    missing <- character()
+    for (item in parsed$species) {
+        if (!is.null(item$initial) || item$id %in% assigned_symbols) {
+            next
+        }
+        if (item$id %in% rule_targets) {
+            next
+        }
+        missing <- c(missing, item$id)
+    }
+    if (length(missing) > 0L) {
+        stop(
+            "não suportado: espécie sem valor inicial (sem initialAmount, ",
+            "initialConcentration, initialAssignment ou regra): ",
+            paste(missing, collapse = ", ")
+        )
+    }
+    invisible(TRUE)
+}
+
 #' Read an SBML model into a DNAr CRN.
 #'
 #' Species attribute initials are converted into simulated units (concentration
@@ -697,7 +758,7 @@ sbml_apply_resolved_stoichiometry <- function(parsed, symbols) {
 #' @param xml_file_path Path to an SBML document.
 #' @return A DNAr-compatible list containing `species`, `ci`, `reactions`,
 #'   `ki`, `symbols`, `outputs`, `conversion_factors`, `species_info`,
-#'   `fixed_species`, `rules` (metadata only; not applied), and SBML
+#'   `fixed_species`, `rules` and `events` (metadata only; not applied), and SBML
 #'   kinetic-law metadata.
 #' @export
 read_sbml_to_dnar <- function(xml_file_path) {
@@ -734,6 +795,7 @@ read_sbml_to_dnar <- function(xml_file_path) {
         strict = TRUE
     )
     parsed <- sbml_apply_resolved_stoichiometry(parsed, symbols)
+    sbml_check_species_initial_defined(parsed, symbols, assigned_symbols)
     species <- vapply(parsed$species, `[[`, character(1), "id")
     ci <- setNames(
         vapply(species, function(id) as.numeric(symbols[[id]]), numeric(1)),
@@ -900,6 +962,7 @@ read_sbml_to_dnar <- function(xml_file_path) {
             species_info = species_info,
             fixed_species = fixed_species,
             rules = if (is.null(parsed$rules)) list() else parsed$rules,
+            events = if (is.null(parsed$events)) list() else parsed$events,
             kinetic_info = kinetic_info,
             kinetic_laws = lapply(parsed$reactions, function(reaction) {
                 list(
