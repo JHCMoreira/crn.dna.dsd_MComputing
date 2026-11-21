@@ -49,11 +49,9 @@ sbml_python_script <- function() {
         "    return None if math is None else libsbml.formulaToL3String(math)",
         "",
         "compartments = {}",
-        "compartment_sizes = {}",
         "for i in range(model.getNumCompartments()):",
         "    compartment = model.getCompartment(i)",
         "    size = compartment.getSize() if compartment.isSetSize() else None",
-        "    compartment_sizes[compartment.getId()] = size",
         "    compartments[compartment.getId()] = {",
         "        'size': number(size),",
         "        'spatialDimensions': (",
@@ -72,9 +70,9 @@ sbml_python_script <- function() {
         "for i in range(model.getNumSpecies()):",
         "    item = model.getSpecies(i)",
         "    compartment_id = item.getCompartment()",
-        "    compartment_meta = compartments.get(compartment_id, {})",
-        "    dims = compartment_meta.get('spatialDimensions')",
-        "    is_zero_d = dims == 0",
+        "    # Keep raw amount/concentration; R converts after initialAssignment",
+        "    # so compartment size from IA is honored and hosu*concentration",
+        "    # is multiplied by volume.",
         "    initial = None",
         "    initial_type = None",
         "    if item.isSetInitialConcentration():",
@@ -83,12 +81,6 @@ sbml_python_script <- function() {
         "    elif item.isSetInitialAmount():",
         "        initial = item.getInitialAmount()",
         "        initial_type = 'amount'",
-        "        size = compartment_sizes.get(compartment_id)",
-        "        # 0D compartments have no volume: keep amount as quantity.",
-        "        if (not item.getHasOnlySubstanceUnits()",
-        "                and not is_zero_d",
-        "                and size not in (None, 0)):",
-        "            initial = initial / size",
         "    if initial is None:",
         "        initial = 0.0",
         "    species.append({",
@@ -301,10 +293,13 @@ sbml_math_env <- function(values) {
         if (n == 0L) {
             return(NA_real_)
         }
-        for (i in seq(1L, max(n - 1L, 0L), by = 2L)) {
-            if (i + 1L > n) {
-                break
-            }
+        # SBML piecewise(value1, cond1, ..., valueN, condN[, otherwise]).
+        # A lone otherwise argument is valid and must not call seq(1, 0, by=2).
+        if (n == 1L) {
+            return(args[[1L]])
+        }
+        last_piece <- if (n %% 2L == 0L) n else (n - 1L)
+        for (i in seq.int(1L, last_piece, by = 2L)) {
             if (isTRUE(args[[i + 1L]])) {
                 return(args[[i]])
             }
@@ -328,8 +323,9 @@ sbml_compartment_size <- function(parsed, compartment_id) {
 
 #' Collect SBML name -> value bindings used when evaluating kinetic laws.
 #'
-#' Includes compartment sizes, parameters, species (concentration, or amount
-#' when `hasOnlySubstanceUnits` is true), and stoichiometries keyed by
+#' Includes compartment sizes, parameters, species raw initials (amount or
+#' concentration as declared; unit conversion happens later in
+#' `sbml_apply_species_initial_units()`), and stoichiometries keyed by
 #' `speciesReference` id.
 #'
 #' @param parsed Bridge output from `sbml_run_bridge()`.
@@ -349,7 +345,7 @@ sbml_build_symbols <- function(parsed) {
     }
 
     for (item in parsed$species) {
-        # Bridge already stores concentration, or amount when hosu=true.
+        # Raw initialAmount / initialConcentration from the bridge.
         symbols[[item$id]] <- as.numeric(item$initial)
     }
 
@@ -361,6 +357,76 @@ sbml_build_symbols <- function(parsed) {
         }
     }
 
+    symbols
+}
+
+#' Convert species attribute initials into simulated units.
+#'
+#' Uses the resolved symbol table so compartment sizes from
+#' `initialAssignment` are honored. Species whose value was set by an
+#' `initialAssignment` are left unchanged (already in the species units).
+#'
+#' Simulated units follow DNAr/SBML practice:
+#' - `hasOnlySubstanceUnits` or 0D compartment: amount
+#' - otherwise: concentration (= amount / volume)
+#'
+#' @param parsed Bridge output from `sbml_run_bridge()`.
+#' @param symbols Symbol table after `sbml_resolve_initial_assignments()`.
+#' @param assigned_species Species ids overwritten by initialAssignment.
+#' @return Updated symbol table.
+sbml_apply_species_initial_units <- function(parsed, symbols,
+                                             assigned_species = character()) {
+    assigned_species <- as.character(assigned_species)
+    for (item in parsed$species) {
+        id <- item$id
+        if (id %in% assigned_species) {
+            next
+        }
+        initial_type <- item$initialType
+        if (is.null(initial_type) || !nzchar(initial_type)) {
+            next
+        }
+        compartment <- parsed$compartments[[item$compartment]]
+        dims <- if (is.null(compartment)) {
+            NA_real_
+        } else {
+            as.numeric(compartment$spatialDimensions)
+        }
+        amount_state <- isTRUE(item$hasOnlySubstanceUnits) ||
+            (!is.na(dims) && dims == 0)
+        value <- as.numeric(symbols[[id]])
+        if (!is.finite(value)) {
+            next
+        }
+
+        if (identical(initial_type, "amount") && !amount_state) {
+            volume <- symbols[[item$compartment]]
+            if (is.null(volume)) {
+                volume <- if (is.null(compartment)) NULL else compartment$size
+            }
+            volume <- as.numeric(volume)
+            if (!is.finite(volume) || volume == 0) {
+                stop(
+                    "volume invalido para especie '", id,
+                    "' ao converter initialAmount"
+                )
+            }
+            symbols[[id]] <- value / volume
+        } else if (identical(initial_type, "concentration") && amount_state) {
+            volume <- symbols[[item$compartment]]
+            if (is.null(volume)) {
+                volume <- if (is.null(compartment)) NULL else compartment$size
+            }
+            volume <- as.numeric(volume)
+            if (!is.finite(volume)) {
+                stop(
+                    "volume invalido para especie '", id,
+                    "' ao converter initialConcentration com hasOnlySubstanceUnits"
+                )
+            }
+            symbols[[id]] <- value * volume
+        }
+    }
     symbols
 }
 
@@ -564,7 +630,9 @@ sbml_resolve_initial_assignments <- function(assignments, values) {
 #' Read an SBML model into a DNAr CRN.
 #'
 #' Species initial amounts are converted to concentrations using their
-#' compartment size, except in 0D compartments (kept as quantity).
+#' compartment size (resolved after `initialAssignment`), except when
+#' `hasOnlySubstanceUnits` or the compartment is 0D (amount state). With
+#' hosu + `initialConcentration`, the value is multiplied by volume.
 #' `initialAssignment` formulas are resolved (Kahn topological order) before
 #' `ci` and `ki` are computed. Kinetic laws stay in amount/time; per-species
 #' `conversion_factors` (`CF/V`, or `CF` for hosu/0D) are meant for
@@ -591,9 +659,19 @@ read_sbml_to_dnar <- function(xml_file_path) {
         stop("não suportado: múltiplos compartimentos")
     }
 
+    assigned_symbols <- if (length(parsed$initialAssignments) == 0L) {
+        character()
+    } else {
+        vapply(parsed$initialAssignments, `[[`, character(1), "symbol")
+    }
     symbols <- sbml_resolve_initial_assignments(
         parsed$initialAssignments,
         sbml_build_symbols(parsed)
+    )
+    symbols <- sbml_apply_species_initial_units(
+        parsed,
+        symbols,
+        assigned_species = assigned_symbols
     )
     species <- vapply(parsed$species, `[[`, character(1), "id")
     ci <- setNames(
@@ -718,7 +796,11 @@ read_sbml_to_dnar <- function(xml_file_path) {
             env <- sbml_math_env(c(constants, as.list(y)))
             val <- suppressWarnings(eval(expr, envir = env))
             if (!is.numeric(val) || length(val) != 1L || !is.finite(val)) {
-                return(0)
+                stop(
+                    "Non-finite kinetic law rate at t=", t,
+                    " for species state: ",
+                    paste(names(y), "=", as.numeric(y), collapse = ", ")
+                )
             }
             as.numeric(val)
         }

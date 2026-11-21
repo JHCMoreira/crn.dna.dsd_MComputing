@@ -155,6 +155,8 @@ test_that("symbols table unlocks compartment kinetics and exposes volume", {
     env <- sbml_math_env(list(x = 1.5, flag = TRUE))
     expect_equal(eval(parse(text = "ceil(x)"), envir = env), 2)
     expect_equal(eval(parse(text = "piecewise(10, flag, 0)"), envir = env), 10)
+    expect_equal(eval(parse(text = "piecewise(42)"), envir = env), 42)
+    expect_equal(eval(parse(text = "piecewise(1, FALSE, 2, FALSE, 7)"), envir = env), 7)
 })
 
 test_that("conversionFactor becomes dx_scale without changing mass-action order", {
@@ -206,6 +208,77 @@ test_that("hasOnlySubstanceUnits keeps amount state in ci", {
     expect_false(crn$species_info$S2$hasOnlySubstanceUnits)
     expect_equal(crn$conversion_factors[["S1"]], 1)
     expect_equal(crn$conversion_factors[["S2"]], 0.5)
+})
+
+test_that("hosu + initialConcentration multiplies by volume", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="hosu_conc"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="2" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialConcentration="3"',
+        ' hasOnlySubstanceUnits="true" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_equal(unname(crn$ci[["S1"]]), 6)
+    expect_true(crn$species_info$S1$hasOnlySubstanceUnits)
+})
+
+test_that("initialAmount uses compartment size from initialAssignment", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="ia_vol"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialAmount="8"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfInitialAssignments>',
+        '<initialAssignment symbol="c"><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<cn>4</cn></math></initialAssignment>',
+        '</listOfInitialAssignments></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_equal(crn$symbols$c, 4)
+    expect_equal(unname(crn$ci[["S1"]]), 2)
+})
+
+test_that("non-finite kinetic law rates error instead of becoming 0", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="nan_rate"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialConcentration="1"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '<species id="S2" compartment="c" initialConcentration="0"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfParameters>',
+        '<parameter id="k" value="NaN" constant="true"/>',
+        '</listOfParameters><listOfReactions>',
+        '<reaction id="r1" reversible="false"><listOfReactants>',
+        '<speciesReference species="S1" stoichiometry="1" constant="true"/>',
+        '</listOfReactants><listOfProducts>',
+        '<speciesReference species="S2" stoichiometry="1" constant="true"/>',
+        '</listOfProducts><kineticLaw><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><plus/><ci>k</ci><ci>S1</ci></apply></math></kineticLaw>',
+        '</reaction></listOfReactions></model></sbml>'
+    ), path)
+    crn <- suppressWarnings(read_sbml_to_dnar(path))
+    expect_true(is.function(crn$ki[[1]]))
+    expect_error(crn$ki[[1]](0, c(S1 = 1, S2 = 0)), "Non-finite")
 })
 
 test_that("bridge preserves Inf/NaN and speciesReference ids", {
