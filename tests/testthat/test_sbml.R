@@ -251,6 +251,54 @@ test_that("initialAmount uses compartment size from initialAssignment", {
     expect_equal(unname(crn$ci[["S1"]]), 2)
 })
 
+test_that("IA formulas see concentration from initialAmount (table example)", {
+    # Tabela: c size=2, S1 initialAmount=8 → conc=4; IA p := S1 → p=4 (não 8).
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="ia_species_conc"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="2" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialAmount="8"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfParameters>',
+        '<parameter id="p" constant="true"/>',
+        '</listOfParameters><listOfInitialAssignments>',
+        '<initialAssignment symbol="p"><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<ci>S1</ci></math></initialAssignment>',
+        '</listOfInitialAssignments></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_equal(unname(crn$ci[["S1"]]), 4)
+    expect_equal(crn$symbols$p, 4)
+    expect_equal(crn$symbols$S1, 4)
+})
+
+test_that("IA-only compartment size still converts initialAmount", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="ia_only_vol"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialAmount="8"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfInitialAssignments>',
+        '<initialAssignment symbol="c"><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<cn>4</cn></math></initialAssignment>',
+        '</listOfInitialAssignments></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_equal(crn$symbols$c, 4)
+    expect_equal(unname(crn$ci[["S1"]]), 2)
+})
+
 test_that("non-finite kinetic law rates error instead of becoming 0", {
     skip_if_not(sbml_available())
 
