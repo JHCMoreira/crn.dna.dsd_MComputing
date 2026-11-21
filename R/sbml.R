@@ -70,7 +70,7 @@ sbml_python_script <- function() {
         "for i in range(model.getNumSpecies()):",
         "    item = model.getSpecies(i)",
         "    compartment_id = item.getCompartment()",
-        "    # Keep raw amount/concentration; R converts after initialAssignment",
+        "    # Keep raw amount/concentration; R converts around initialAssignment",
         "    # so compartment size from IA is honored and hosu*concentration",
         "    # is multiplied by volume.",
         "    initial = None",
@@ -324,9 +324,9 @@ sbml_compartment_size <- function(parsed, compartment_id) {
 #' Collect SBML name -> value bindings used when evaluating kinetic laws.
 #'
 #' Includes compartment sizes, parameters, species raw initials (amount or
-#' concentration as declared; unit conversion happens later in
-#' `sbml_apply_species_initial_units()`), and stoichiometries keyed by
-#' `speciesReference` id.
+#' concentration as declared; unit conversion is applied around
+#' `initialAssignment` via `sbml_apply_species_initial_units()`), and
+#' stoichiometries keyed by `speciesReference` id.
 #'
 #' @param parsed Bridge output from `sbml_run_bridge()`.
 #' @return A named list of numeric symbol values.
@@ -362,20 +362,28 @@ sbml_build_symbols <- function(parsed) {
 
 #' Convert species attribute initials into simulated units.
 #'
-#' Uses the resolved symbol table so compartment sizes from
-#' `initialAssignment` are honored. Species whose value was set by an
-#' `initialAssignment` are left unchanged (already in the species units).
+#' Always converts from the bridge raw `initial` (amount or concentration as
+#' declared), never from a previously converted symbol value. Call once with
+#' the declared compartment size before resolving `initialAssignment` (so
+#' formulas see concentrations), then again afterwards for species that were
+#' not overwritten, using the resolved size.
+#'
+#' Species whose value was set by an `initialAssignment` are left unchanged
+#' (already in the species units).
 #'
 #' Simulated units follow DNAr/SBML practice:
 #' - `hasOnlySubstanceUnits` or 0D compartment: amount
 #' - otherwise: concentration (= amount / volume)
 #'
 #' @param parsed Bridge output from `sbml_run_bridge()`.
-#' @param symbols Symbol table after `sbml_resolve_initial_assignments()`.
+#' @param symbols Symbol table (before or after `initialAssignment`).
 #' @param assigned_species Species ids overwritten by initialAssignment.
+#' @param strict If `TRUE`, missing/invalid volume is an error; if `FALSE`,
+#'   skip conversion (needed when size exists only via `initialAssignment`).
 #' @return Updated symbol table.
 sbml_apply_species_initial_units <- function(parsed, symbols,
-                                             assigned_species = character()) {
+                                             assigned_species = character(),
+                                             strict = TRUE) {
     assigned_species <- as.character(assigned_species)
     for (item in parsed$species) {
         id <- item$id
@@ -394,36 +402,41 @@ sbml_apply_species_initial_units <- function(parsed, symbols,
         }
         amount_state <- isTRUE(item$hasOnlySubstanceUnits) ||
             (!is.na(dims) && dims == 0)
-        value <- as.numeric(symbols[[id]])
-        if (!is.finite(value)) {
+        # Always from raw attribute so a second pass can redo with resolved V.
+        value <- as.numeric(item$initial)
+        if (length(value) != 1L || !is.finite(value)) {
+            next
+        }
+
+        need_volume <- (identical(initial_type, "amount") && !amount_state) ||
+            (identical(initial_type, "concentration") && amount_state)
+        if (!need_volume) {
+            symbols[[id]] <- value
+            next
+        }
+
+        volume <- symbols[[item$compartment]]
+        if (length(volume) != 1L) {
+            volume <- if (is.null(compartment)) NULL else compartment$size
+        }
+        volume <- as.numeric(volume)
+        # NULL -> numeric(0); length check avoids `!is.finite(numeric(0))`.
+        volume_ok <- length(volume) == 1L && is.finite(volume) &&
+            !(identical(initial_type, "amount") && !amount_state && volume == 0)
+        if (!volume_ok) {
+            if (isTRUE(strict)) {
+                stop(
+                    "volume invalido para especie '", id,
+                    "' ao converter initial",
+                    if (identical(initial_type, "amount")) "Amount" else "Concentration"
+                )
+            }
             next
         }
 
         if (identical(initial_type, "amount") && !amount_state) {
-            volume <- symbols[[item$compartment]]
-            if (is.null(volume)) {
-                volume <- if (is.null(compartment)) NULL else compartment$size
-            }
-            volume <- as.numeric(volume)
-            if (!is.finite(volume) || volume == 0) {
-                stop(
-                    "volume invalido para especie '", id,
-                    "' ao converter initialAmount"
-                )
-            }
             symbols[[id]] <- value / volume
-        } else if (identical(initial_type, "concentration") && amount_state) {
-            volume <- symbols[[item$compartment]]
-            if (is.null(volume)) {
-                volume <- if (is.null(compartment)) NULL else compartment$size
-            }
-            volume <- as.numeric(volume)
-            if (!is.finite(volume)) {
-                stop(
-                    "volume invalido para especie '", id,
-                    "' ao converter initialConcentration com hasOnlySubstanceUnits"
-                )
-            }
+        } else {
             symbols[[id]] <- value * volume
         }
     }
@@ -629,10 +642,12 @@ sbml_resolve_initial_assignments <- function(assignments, values) {
 
 #' Read an SBML model into a DNAr CRN.
 #'
-#' Species initial amounts are converted to concentrations using their
-#' compartment size (resolved after `initialAssignment`), except when
-#' `hasOnlySubstanceUnits` or the compartment is 0D (amount state). With
-#' hosu + `initialConcentration`, the value is multiplied by volume.
+#' Species attribute initials are converted into simulated units (concentration
+#' unless `hasOnlySubstanceUnits` or 0D) twice around `initialAssignment`:
+#' first with the declared compartment size (`strict = FALSE`) so IA formulas
+#' read concentrations; then again from the raw attribute with the resolved
+#' size for species that were not overwritten. With hosu +
+#' `initialConcentration`, the value is multiplied by volume.
 #' `initialAssignment` formulas are resolved (Kahn topological order) before
 #' `ci` and `ki` are computed. Kinetic laws stay in amount/time; per-species
 #' `conversion_factors` (`CF/V`, or `CF` for hosu/0D) are meant for
@@ -664,14 +679,23 @@ read_sbml_to_dnar <- function(xml_file_path) {
     } else {
         vapply(parsed$initialAssignments, `[[`, character(1), "symbol")
     }
+    # Declared size first so IA math sees concentrations; skip if V is IA-only.
+    symbols <- sbml_apply_species_initial_units(
+        parsed,
+        sbml_build_symbols(parsed),
+        assigned_species = character(),
+        strict = FALSE
+    )
     symbols <- sbml_resolve_initial_assignments(
         parsed$initialAssignments,
-        sbml_build_symbols(parsed)
+        symbols
     )
+    # Redo from raw with resolved V; keep IA-assigned species as-is.
     symbols <- sbml_apply_species_initial_units(
         parsed,
         symbols,
-        assigned_species = assigned_symbols
+        assigned_species = assigned_symbols,
+        strict = TRUE
     )
     species <- vapply(parsed$species, `[[`, character(1), "id")
     ci <- setNames(
