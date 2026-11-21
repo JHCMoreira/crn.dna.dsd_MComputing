@@ -640,6 +640,42 @@ sbml_resolve_initial_assignments <- function(assignments, values) {
     as.list(unlist(mget(union(names(values), targets), envir = env)))
 }
 
+#' Write `initialAssignment`-resolved stoichiometries back into `parsed`.
+#'
+#' A `speciesReference` with an `id` can have its stoichiometry set by an
+#' `initialAssignment` (SBML L3, e.g. case 01066). Downstream code (reaction
+#' strings, kinetic classification) reads `ref$stoich`, so the resolved value
+#' from `symbols` replaces the raw attribute. A stoichiometry that is still
+#' undefined is rejected explicitly.
+#'
+#' @param parsed Bridge output from `sbml_run_bridge()`.
+#' @param symbols Symbol table after `sbml_resolve_initial_assignments()`.
+#' @return `parsed` with resolved `stoich` values.
+sbml_apply_resolved_stoichiometry <- function(parsed, symbols) {
+    resolve <- function(refs) {
+        lapply(refs, function(ref) {
+            if (!is.null(ref$id) && nzchar(ref$id) && !is.null(symbols[[ref$id]])) {
+                ref$stoich <- as.numeric(symbols[[ref$id]])
+            }
+            stoich <- as.numeric(ref$stoich)
+            if (length(stoich) != 1L || !is.finite(stoich)) {
+                stop(
+                    "não suportado: estequiometria indefinida para '",
+                    ref$species, "'",
+                    if (!is.null(ref$id) && nzchar(ref$id)) paste0(" (", ref$id, ")") else ""
+                )
+            }
+            ref
+        })
+    }
+    parsed$reactions <- lapply(parsed$reactions, function(reaction) {
+        reaction$reactants <- resolve(reaction$reactants)
+        reaction$products <- resolve(reaction$products)
+        reaction
+    })
+    parsed
+}
+
 #' Read an SBML model into a DNAr CRN.
 #'
 #' Species attribute initials are converted into simulated units (concentration
@@ -697,6 +733,7 @@ read_sbml_to_dnar <- function(xml_file_path) {
         assigned_species = assigned_symbols,
         strict = TRUE
     )
+    parsed <- sbml_apply_resolved_stoichiometry(parsed, symbols)
     species <- vapply(parsed$species, `[[`, character(1), "id")
     ci <- setNames(
         vapply(species, function(id) as.numeric(symbols[[id]]), numeric(1)),

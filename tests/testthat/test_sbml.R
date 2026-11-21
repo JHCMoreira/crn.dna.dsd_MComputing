@@ -410,3 +410,37 @@ test_that("initialAssignment Kahn order detects cycles", {
     expect_equal(resolved$k2, 6)
     expect_equal(resolved$S1, 6)
 })
+
+test_that("speciesReference stoichiometry from initialAssignment is applied", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="ia_stoich"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialAmount="1"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '<species id="S2" compartment="c" initialAmount="0"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfParameters>',
+        '<parameter id="p1" value="1" constant="true"/>',
+        '<parameter id="k" value="0.3" constant="true"/>',
+        '</listOfParameters><listOfInitialAssignments>',
+        '<initialAssignment symbol="ref1"><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><times/><cn>2</cn><ci>p1</ci></apply></math></initialAssignment>',
+        '</listOfInitialAssignments><listOfReactions>',
+        '<reaction id="r1" reversible="false"><listOfReactants>',
+        '<speciesReference id="ref1" species="S1" constant="true"/>',
+        '</listOfReactants><listOfProducts>',
+        '<speciesReference species="S2" stoichiometry="1" constant="true"/>',
+        '</listOfProducts><kineticLaw><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><times/><ci>k</ci><ci>S1</ci></apply></math></kineticLaw>',
+        '</reaction></listOfReactions></model></sbml>'
+    ), path)
+    crn <- suppressWarnings(read_sbml_to_dnar(path))
+    expect_equal(crn$reactions, "2S1 -> S2")
+    expect_equal(crn$symbols$ref1, 2)
+})
