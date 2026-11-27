@@ -410,3 +410,181 @@ test_that("initialAssignment Kahn order detects cycles", {
     expect_equal(resolved$k2, 6)
     expect_equal(resolved$S1, 6)
 })
+
+test_that("speciesReference stoichiometry from initialAssignment is applied", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="ia_stoich"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialAmount="1"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '<species id="S2" compartment="c" initialAmount="0"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfParameters>',
+        '<parameter id="p1" value="1" constant="true"/>',
+        '<parameter id="k" value="0.3" constant="true"/>',
+        '</listOfParameters><listOfInitialAssignments>',
+        '<initialAssignment symbol="ref1"><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><times/><cn>2</cn><ci>p1</ci></apply></math></initialAssignment>',
+        '</listOfInitialAssignments><listOfReactions>',
+        '<reaction id="r1" reversible="false"><listOfReactants>',
+        '<speciesReference id="ref1" species="S1" constant="true"/>',
+        '</listOfReactants><listOfProducts>',
+        '<speciesReference species="S2" stoichiometry="1" constant="true"/>',
+        '</listOfProducts><kineticLaw><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><times/><ci>k</ci><ci>S1</ci></apply></math></kineticLaw>',
+        '</reaction></listOfReactions></model></sbml>'
+    ), path)
+    crn <- suppressWarnings(read_sbml_to_dnar(path))
+    expect_equal(crn$reactions, "2S1 -> S2")
+    expect_equal(crn$symbols$ref1, 2)
+})
+
+test_that("events are exposed as metadata without being applied", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="event_meta"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialConcentration="1"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfEvents>',
+        '<event id="e1" useValuesFromTriggerTime="true">',
+        '<trigger initialValue="false" persistent="true">',
+        '<math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><geq/><csymbol encoding="text" definitionURL="http://www.sbml.org/sbml/symbols/time">t</csymbol>',
+        '<cn>5</cn></apply></math></trigger>',
+        '<delay><math xmlns="http://www.w3.org/1998/Math/MathML"><cn>1</cn></math></delay>',
+        '<listOfEventAssignments><eventAssignment variable="S1">',
+        '<math xmlns="http://www.w3.org/1998/Math/MathML"><cn>3</cn></math>',
+        '</eventAssignment></listOfEventAssignments></event>',
+        '</listOfEvents></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_length(crn$events, 1L)
+    ev <- crn$events[[1]]
+    expect_equal(ev$id, "e1")
+    expect_match(ev$trigger, ">=")
+    expect_false(ev$initialValue)
+    expect_true(ev$persistent)
+    expect_equal(ev$delay, "1")
+    expect_null(ev$priority)
+    expect_true(ev$useValuesFromTriggerTime)
+    expect_equal(ev$assignments[[1]]$variable, "S1")
+    expect_equal(ev$assignments[[1]]$formula, "3")
+    # metadata only: ci is untouched
+    expect_equal(unname(crn$ci[["S1"]]), 1)
+})
+
+test_that("species without any initial value is an explicit error", {
+    skip_if_not(sbml_available())
+
+    model <- function(extra) c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="no_initial"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies>', extra, '</model></sbml>'
+    )
+    path <- tempfile(fileext = ".xml")
+    writeLines(model(character()), path)
+    expect_error(read_sbml_to_dnar(path), "sem valor inicial")
+
+    with_ia <- tempfile(fileext = ".xml")
+    writeLines(model(c(
+        '<listOfInitialAssignments><initialAssignment symbol="S1">',
+        '<math xmlns="http://www.w3.org/1998/Math/MathML"><cn>2</cn></math>',
+        '</initialAssignment></listOfInitialAssignments>'
+    )), with_ia)
+    expect_equal(unname(read_sbml_to_dnar(with_ia)$ci[["S1"]]), 2)
+})
+
+test_that("species_info volume uses compartment size from initialAssignment", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="ia_vol_info"><listOfCompartments>',
+        '<compartment id="C" spatialDimensions="3" size="5.4" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="C" initialAmount="1"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfParameters>',
+        '<parameter id="k2" value="50" constant="true"/>',
+        '</listOfParameters><listOfInitialAssignments>',
+        '<initialAssignment symbol="C"><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><divide/><ci>k2</ci><cn>50</cn></apply></math></initialAssignment>',
+        '</listOfInitialAssignments></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_equal(unname(crn$ci[["S1"]]), 1)
+    # concentration * volume must give back the declared amount (1 mole)
+    expect_equal(crn$species_info$S1$volume, 1)
+})
+
+test_that("initialAssignment without math is ignored and does not read stdin", {
+    skip_if_not(sbml_available())
+
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="ia_no_math"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="2" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialAmount="8"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfParameters>',
+        '<parameter id="p" value="3" constant="true"/>',
+        '</listOfParameters><listOfInitialAssignments>',
+        '<initialAssignment symbol="p"/><initialAssignment symbol="S1"/>',
+        '</listOfInitialAssignments></model></sbml>'
+    ), path)
+    crn <- read_sbml_to_dnar(path)
+    expect_equal(crn$symbols$p, 3)
+    expect_equal(unname(crn$ci[["S1"]]), 4)
+    expect_equal(sbml_resolve_initial_assignments(
+        list(list(symbol = "p", formula = NULL)), list(p = 3)
+    ), list(p = 3))
+})
+
+test_that("csymbols time and avogadro are available in SBML math", {
+    env <- sbml_math_env(list(k = 2))
+    expect_equal(eval(parse(text = "time"), envir = env), 0)
+    expect_equal(eval(parse(text = "avogadro"), envir = env), 6.02214076e23)
+
+    skip_if_not(sbml_available())
+    path <- tempfile(fileext = ".xml")
+    writeLines(c(
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">',
+        '<model id="csym_time"><listOfCompartments>',
+        '<compartment id="c" spatialDimensions="3" size="1" constant="true"/>',
+        '</listOfCompartments><listOfSpecies>',
+        '<species id="S1" compartment="c" initialConcentration="1"',
+        ' hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>',
+        '</listOfSpecies><listOfReactions>',
+        '<reaction id="r1" reversible="false"><listOfReactants>',
+        '<speciesReference species="S1" stoichiometry="1" constant="true"/>',
+        '</listOfReactants><kineticLaw><math xmlns="http://www.w3.org/1998/Math/MathML">',
+        '<apply><times/><ci>S1</ci>',
+        '<csymbol encoding="text" definitionURL="http://www.sbml.org/sbml/symbols/time">t</csymbol>',
+        '</apply></math></kineticLaw></reaction></listOfReactions></model></sbml>'
+    ), path)
+    crn <- suppressWarnings(read_sbml_to_dnar(path))
+    expect_equal(crn$ki[[1]](3, c(S1 = 2)), 6)
+})
