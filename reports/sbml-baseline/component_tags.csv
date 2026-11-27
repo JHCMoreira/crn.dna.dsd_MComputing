@@ -1,0 +1,39 @@
+"tag","status","count"
+"AlgebraicRule","nao suportado",125
+"AssignmentRule","nao suportado",392
+"comp:Deletion","nao suportado",14
+"comp:ExternalModelDefinition","nao suportado",10
+"comp:ModelDefinition","nao suportado",115
+"comp:Port","nao suportado",16
+"comp:ReplacedBy","nao suportado",16
+"comp:ReplacedElement","nao suportado",99
+"comp:SBaseRef","nao suportado",18
+"comp:Submodel","nao suportado",123
+"Compartment","falhou",268
+"Compartment","nao suportado",1211
+"Compartment","passou",12
+"CSymbolAvogadro","nao suportado",23
+"CSymbolDelay","nao suportado",54
+"CSymbolRateOf","nao suportado",62
+"CSymbolTime","falhou",25
+"CSymbolTime","nao suportado",229
+"EventNoDelay","nao suportado",277
+"EventPriority","nao suportado",61
+"EventWithDelay","nao suportado",230
+"fbc:FluxBound","nao suportado",12
+"fbc:FluxObjective","nao suportado",34
+"fbc:Objective","nao suportado",34
+"FunctionDefinition","nao suportado",206
+"InitialAssignment","nao suportado",323
+"Parameter","falhou",257
+"Parameter","nao suportado",1350
+"Parameter","passou",12
+"RateRule","nao suportado",411
+"Reaction","falhou",268
+"Reaction","nao suportado",1096
+"Reaction","passou",12
+"Species","falhou",268
+"Species","nao suportado",1174
+"Species","passou",12
+"StoichiometryMath","falhou",15
+"StoichiometryMath","nao suportado",55

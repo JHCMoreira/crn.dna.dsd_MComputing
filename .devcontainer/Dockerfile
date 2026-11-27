@@ -55,6 +55,7 @@ RUN install2.r --error --skipinstalled \
     deSolve \
     stringr \
     ggplot2 \
+    dplyr \
     reshape2 \
     RColorBrewer \
     assertthat \
@@ -62,7 +63,9 @@ RUN install2.r --error --skipinstalled \
     Rdpack \
     gganimate \
     gifski \
-    GillespieSSA2
+    GillespieSSA2 \
+    jsonlite \
+    testthat
 
 # libSBML is used by the R SBML bridge in R/sbml.R.
 RUN python3 -m pip install --no-cache-dir python-libsbml

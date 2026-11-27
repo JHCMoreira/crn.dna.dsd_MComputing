@@ -52,11 +52,42 @@ solve_crn_diffeqr <- function(t, ci, Mt, reactant_map, v_exp_reactants, ki,
                                species = NULL,
                                forced_concentrations = NULL,
                                events = NULL,
-                               forcing_tau = 0.01) {
+                               forcing_tau = 0.01,
+                               dx_scale = NULL,
+                               full_propensity = NULL) {
     if(!all(vapply(ki, is.numeric, logical(1)))) {
         stop(
             "The 'diffeqr' engine currently supports numeric constant ki values only."
         )
+    }
+
+    n_reactions <- length(ki)
+    if (is.null(full_propensity)) {
+        full_propensity <- logical(n_reactions)
+    } else {
+        full_propensity <- as.logical(full_propensity)
+        if (length(full_propensity) != n_reactions) {
+            stop("full_propensity must have one logical flag per reaction")
+        }
+    }
+
+    n_species <- length(as.numeric(ci))
+    if (!is.null(dx_scale)) {
+        dx_scale <- as.numeric(dx_scale)
+        if (length(dx_scale) == 1L && n_species > 1L) {
+            dx_scale <- rep(dx_scale, n_species)
+        }
+        if (!is.null(names(dx_scale))) {
+            if (is.null(species)) {
+                stop("solve_crn_diffeqr(): 'species' must be supplied when dx_scale is named.")
+            }
+            dx_scale <- dx_scale[species]
+        }
+        if (length(dx_scale) != n_species || any(!is.finite(dx_scale))) {
+            stop("dx_scale must provide one finite numeric scale per species")
+        }
+    } else {
+        dx_scale <- rep(1, n_species)
     }
 
     if(!requireNamespace("diffeqr", quietly = TRUE) ||
@@ -72,6 +103,8 @@ solve_crn_diffeqr <- function(t, ci, Mt, reactant_map, v_exp_reactants, ki,
     JuliaCall::julia_assign("crn_k", as.numeric(ki))
     JuliaCall::julia_assign("crn_u0", as.numeric(ci))
     JuliaCall::julia_assign("crn_tspan", c(min(t), max(t)))
+    JuliaCall::julia_assign("crn_dx_scale", as.numeric(dx_scale))
+    JuliaCall::julia_assign("crn_full_propensity", as.logical(full_propensity))
     JuliaCall::julia_assign(
         "crn_reactant_map",
         lapply(reactant_map, function(r_map) {
@@ -158,7 +191,7 @@ solve_crn_diffeqr <- function(t, ci, Mt, reactant_map, v_exp_reactants, ki,
             "    v = zeros(length(crn_k))\n",
             "    for i in eachindex(crn_k)\n",
             "        react_map = crn_reactant_map[i]\n",
-            "        if isempty(react_map)\n",
+            "        if crn_full_propensity[i] || isempty(react_map)\n",
             "            v[i] = crn_k[i]\n",
             "        else\n",
             "            term = crn_k[i]\n",
@@ -169,7 +202,7 @@ solve_crn_diffeqr <- function(t, ci, Mt, reactant_map, v_exp_reactants, ki,
             "            v[i] = term\n",
             "        end\n",
             "    end\n",
-            "    dy = vec(crn_M * v)\n",
+            "    dy = vec(crn_M * v) .* crn_dx_scale\n",
             "    for i in eachindex(crn_forced_idx)\n",
             "        idx = crn_forced_idx[i]\n",
             "        dy[idx] = (crn_forcing_funcs[i](t) - u[idx]) / crn_forcing_tau\n",
@@ -374,54 +407,60 @@ react <- function(species, ci, reactions, ki, t, verbose = FALSE, engine = 'deso
 
     for(i in seq_along(ki)) {
 
-        k <- ki[[i]]
+        k_current <- ki[[i]]
 
         # --------------------------------------------------------
         # Constant rate
         # --------------------------------------------------------
 
-        if(is.numeric(k) && length(k) == 1) {
+        if(is.numeric(k_current) && length(k_current) == 1) {
 
-            kinetic_functions[[i]] <- function(t, y, species) {
-                k
-            }
+            kinetic_functions[[i]] <- local({
+                k_const <- k_current
+                function(t, y, species) {
+                    k_const
+                }
+            })
 
         # --------------------------------------------------------
         # Function
         # --------------------------------------------------------
 
-        } else if(is.function(k)) {
+        } else if(is.function(k_current)) {
 
-            nargs_k <- length(formals(k))
+            kinetic_functions[[i]] <- local({
+                k_fun <- k_current
+                nargs_k <- length(formals(k_fun))
 
-            # function(t)
-            if(nargs_k == 1) {
+                # function(t)
+                if(nargs_k == 1) {
 
-                kinetic_functions[[i]] <- function(t, y, species) {
-                    k(t)
+                    function(t, y, species) {
+                        k_fun(t)
+                    }
+
+                # function(t, y)
+                } else if(nargs_k == 2) {
+
+                    function(t, y, species) {
+                        k_fun(t, y)
+                    }
+
+                # function(t, y, species)
+                } else if(nargs_k >= 3) {
+
+                    function(t, y, species) {
+                        k_fun(t, y, species)
+                    }
+
+                } else {
+
+                    stop(sprintf(
+                        "Unsupported function signature in ki[%d]",
+                        i
+                    ))
                 }
-
-            # function(t, y)
-            } else if(nargs_k == 2) {
-
-                kinetic_functions[[i]] <- function(t, y, species) {
-                    k(t, y)
-                }
-
-            # function(t, y, species)
-            } else if(nargs_k >= 3) {
-
-                kinetic_functions[[i]] <- function(t, y, species) {
-                    k(t, y, species)
-                }
-
-            } else {
-
-                stop(sprintf(
-                    "Unsupported function signature in ki[%d]",
-                    i
-                ))
-            }
+            })
 
         } else {
 
@@ -1057,6 +1096,20 @@ react3 <- function(
 ##           needing to know its format and remember to name `ci`.
 ## ============================================================
 
+#' Simulate a CRN (react4)
+#'
+#' Extended CRN simulator supporting events, derivative scales
+#' (`dx_scale`), and SBML full-propensity kinetic laws. See [react()]
+#' for the core CRN arguments.
+#'
+#' @inheritParams react
+#' @param events Optional data.frame with columns `time`, `species`,
+#'   `amount` for instantaneous state jumps.
+#' @param dx_scale Optional per-species derivative scales (e.g. SBML
+#'   conversion factors).
+#' @param ... Extra arguments forwarded to the ODE solver.
+#' @return A data frame of simulated concentrations over time.
+#' @export
 react4 <- function(
     species, ci, reactions, ki, t,
     verbose = FALSE, engine = 'desolve',
@@ -1066,6 +1119,8 @@ react4 <- function(
                       ## amount, removals) at specific times,
                       ## independent of any reaction. Supported by
                       ## both the 'desolve' and 'diffeqr' engines.
+    dx_scale = NULL, ## optional named/unnamed numeric scales applied to
+                      ## each species derivative (SBML conversionFactor).
     ...
 ) {
     if(!engine %in% c('desolve', 'diffeqr')) {
@@ -1117,8 +1172,10 @@ react4 <- function(
     })
 
     kinetic_functions <- vector("list", length(ki))
+    full_propensity <- logical(length(ki))
     for(i in seq_along(ki)) {
         k_current <- ki[[i]]
+        full_propensity[[i]] <- isTRUE(attr(k_current, "sbml_full_propensity"))
         if(is.numeric(k_current) && length(k_current) == 1) {
             kinetic_functions[[i]] <- local({
                 k_const <- k_current
@@ -1170,6 +1227,19 @@ react4 <- function(
         }
     }
 
+    if (!is.null(dx_scale)) {
+        dx_scale <- as.numeric(dx_scale)
+        if (length(dx_scale) == 1L && length(species) > 1L) {
+            dx_scale <- rep(dx_scale, length(species))
+        }
+        if (!is.null(names(dx_scale))) {
+            dx_scale <- dx_scale[species]
+        }
+        if (length(dx_scale) != length(species) || any(!is.finite(dx_scale))) {
+            stop("dx_scale must provide one finite numeric scale per species")
+        }
+    }
+
     fx <- function(t, y, parms) {
         y_named <- setNames(as.numeric(y), species)
 
@@ -1186,7 +1256,8 @@ react4 <- function(
 
             k_val <- kinetic_functions[[i]](t, y_named, species)
 
-            if(length(react_map) == 1 && is.na(react_map)) {
+            if (full_propensity[[i]] ||
+                (length(react_map) == 1 && is.na(react_map))) {
                 mass_action_term <- 1
             } else {
                 mass_action_term <- prod(y_eval[react_map]^v_exp_reactants[[i]])
@@ -1196,6 +1267,9 @@ react4 <- function(
 
         dy <- as.numeric(Mt %*% v)
         names(dy) <- species
+        if (!is.null(dx_scale)) {
+            dy <- dy * dx_scale
+        }
 
         if(!is.null(forced_concentrations)) {
             for(forced_species in names(forced_concentrations)) {
@@ -1229,7 +1303,9 @@ react4 <- function(
             v_exp_reactants = v_exp_reactants, ki = ki,
             species = species,
             forced_concentrations = forced_concentrations,
-            events = events
+            events = events,
+            dx_scale = dx_scale,
+            full_propensity = full_propensity
         )
         result <- cbind(time = solved$time, solved$values)
     }

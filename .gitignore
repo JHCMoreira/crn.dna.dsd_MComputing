@@ -24,3 +24,7 @@ external/
 diario.md
 plano_etapa2.md
 revisoes_prs.md
+external/sbml-test-suite/
+results/sbml*/
+!reports/sbml-baseline/*.csv
+!reports/papel-b/*.csv

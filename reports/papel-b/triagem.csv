@@ -1,0 +1,8 @@
+"grupo","criterio","n"
+"b1_compartimento","regex: object '(compartment|C)' not found",224
+"b2_contorno","tags: BoundaryCondition & HasOnlySubstanceUnits",12
+"b5_species_reference_stoich","regex: _stoich",3
+"b4_infinito","regex: Infinity",1
+"b6_conversion_factor","tag: ConversionFactors & status=falhou",3
+"b5_id_na_formula","regex: object 'J0' not found",1
+"b3_initial_assignment","cause: initial_assignment + BoundaryCondition falhou sem reason",205

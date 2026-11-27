@@ -1,4 +1,6 @@
 .git
+external/
+results/
 .gitignore
 .RData
 .Rhistory

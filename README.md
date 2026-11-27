@@ -77,6 +77,9 @@ Mass-action kinetic laws are converted to numeric `ki` values. Other kinetic
 laws are retained in `model$kinetic_laws` and use their initial-state rate as
 a compatibility fallback for DNAr's mass-action reactor.
 
+See [the SBML test instructions](examples/sbml/README.md) for batch runs
+and compatibility reports.
+
 ## Who Should Use It
 
 If you want to quickly try-out that CRN presented in a paper, or check if
