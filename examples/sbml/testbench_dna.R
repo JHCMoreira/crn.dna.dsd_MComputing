@@ -101,8 +101,14 @@ run_sbml_case_dna <- function(case_id, base_dir,
         error = function(e) e
     )
     if (inherits(model, "error")) {
-        result$reason <- paste("importacao:", conditionMessage(model))
         result$warnings <- unique(warnings)
+        message <- conditionMessage(model)
+        # O importador recusa de propósito o que está fora do escopo
+        # (ex.: "não suportado: múltiplos compartimentos").
+        if (grepl("^n(ã|a)o suportado", message)) {
+            return(unsupported(paste("importacao:", message)))
+        }
+        result$reason <- paste("importacao:", message)
         return(result)
     }
     output_names <- names(model$outputs)
@@ -220,4 +226,67 @@ run_sbml_case_dna <- function(case_id, base_dir,
     result$crn <- simulated$crn
     result$dna <- simulated$dna
     result
+}
+
+# Uma linha da tabela de resumo para um resultado de run_sbml_case_dna().
+dna_case_row <- function(result) {
+    pick <- function(x) if (is.null(x) || length(x) == 0L) NA else x
+    metric <- function(name) pick(result$metrics[[name]])
+    param <- function(name) pick(result$params[[name]])
+    data.frame(
+        case_id = result$case_id,
+        level_version = pick(result$level_version),
+        status_crn = pick(result$status_crn),
+        status_dna = result$status_dna,
+        max_rel_err_dna = metric("max_rel_err_dna"),
+        max_abs_err_dna = metric("max_abs_err_dna"),
+        mse_dna = metric("mse_dna"),
+        nrmse_dna = metric("nrmse_dna"),
+        max_rel_err_crn = metric("max_rel_err_crn"),
+        qmax = param("qmax"),
+        cmax = param("cmax"),
+        alpha = param("alpha"),
+        beta = param("beta"),
+        n_dna_species = pick(result$n_dna_species),
+        n_dna_reactions = pick(result$n_dna_reactions),
+        sim_seconds = pick(result$sim_seconds),
+        reason = pick(result$reason),
+        stringsAsFactors = FALSE
+    )
+}
+
+#' Run several SBML Test Suite cases through the DNA circuit.
+#'
+#' Each case runs inside its own `tryCatch`, so an unexpected error is
+#' recorded as "falhou" with the message and the batch goes on.
+#'
+#' @param base_dir Folder with the semantic cases.
+#' @param case_ids Case ids to run (all cases when `NULL`).
+#' @param out_csv Optional path of the summary CSV.
+#' @param verbose Print one line per case.
+#' @param ... Passed to [run_sbml_case_dna()] (e.g. `qmax_factor`).
+#' @return A list with `results` (one list per case) and `summary`
+#'   (data.frame, one row per case).
+run_sbml_cases_dna <- function(base_dir, case_ids = NULL, out_csv = NULL,
+                               verbose = TRUE, ...) {
+    cases <- discover_sbml_cases(base_dir, case_ids)
+    results <- vector("list", nrow(cases))
+    for (i in seq_len(nrow(cases))) {
+        id <- cases$case_id[[i]]
+        results[[i]] <- tryCatch(
+            run_sbml_case_dna(id, base_dir, case_dir = cases$case_dir[[i]], ...),
+            error = function(e) list(case_id = id, status_dna = "falhou",
+                                     reason = paste("erro inesperado:", conditionMessage(e)))
+        )
+        if (verbose) {
+            cat(sprintf("[%d/%d] %s DNA: %s\n", i, nrow(cases), id,
+                        results[[i]]$status_dna))
+        }
+    }
+    summary <- do.call(rbind, lapply(results, dna_case_row))
+    if (!is.null(out_csv)) {
+        dir.create(dirname(out_csv), recursive = TRUE, showWarnings = FALSE)
+        write.csv(summary, out_csv, row.names = FALSE)
+    }
+    list(results = results, summary = summary)
 }

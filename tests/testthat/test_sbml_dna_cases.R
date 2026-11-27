@@ -43,3 +43,14 @@ test_that("falha de importação (01066) não interrompe o fluxo", {
     expect_no_error(r <- run_sbml_case_dna("01066", suite))
     expect_true(r$status_dna %in% c("passou", "falhou", "nao suportado"))
 })
+
+test_that("lote grava o resumo com uma linha por caso", {
+    csv <- tempfile(fileext = ".csv")
+    out <- run_sbml_cases_dna(suite, c("00062", "00028"), out_csv = csv, verbose = FALSE)
+    s <- read.csv(csv, colClasses = c(case_id = "character"))
+    expect_equal(s$case_id, c("00028", "00062"))
+    expect_equal(s$status_dna, c("nao suportado", "passou"))
+    expect_true(all(c("status_crn", "max_rel_err_dna", "mse_dna", "nrmse_dna",
+                      "qmax", "cmax", "sim_seconds", "reason") %in% names(s)))
+    expect_length(out$results, 2L)
+})
