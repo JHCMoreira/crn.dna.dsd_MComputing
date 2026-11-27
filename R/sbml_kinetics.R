@@ -82,6 +82,13 @@ sbml_flatten_product <- function(expr, species, env, power = 1) {
 
 # Compara os expoentes encontrados com a estequiometria dos reagentes.
 sbml_match_stoichiometry <- function(powers, stoich, species_names) {
+    if (any(!is.finite(stoich))) {
+        bad <- names(stoich)[!is.finite(stoich)]
+        return(sprintf(
+            "estequiometria nao numerica para %s (atribuida por initialAssignment?)",
+            paste(bad, collapse = ", ")
+        ))
+    }
     expected <- numeric()
     for (s in names(stoich)) expected[s] <- stoich[[s]]
     names_all <- union(names(expected), names(powers))
@@ -136,6 +143,9 @@ sbml_classify_kinetic_law <- function(formula, reactants, products = list(),
     expr <- tryCatch(parse(text = formula)[[1]], error = function(e) NULL)
     if (is.null(expr)) {
         return(general("formula nao pode ser interpretada"))
+    }
+    if ("time" %in% all.vars(expr) && !("time" %in% names(constants))) {
+        return(general("a lei depende do tempo (csymbol time)"))
     }
     env <- sbml_math_env(constants)
 
@@ -222,8 +232,16 @@ sbml_additive_terms <- function(expr, sign = 1) {
 #' @return List with one classification per reaction (see
 #'   [sbml_classify_kinetic_law()]) plus `id` and `reversible`.
 #' @keywords internal
-sbml_classify_model <- function(parsed, symbols, species) {
-    lapply(parsed$reactions, function(reaction) {
+sbml_count_side <- function(references) {
+    sum(vapply(references, function(r) {
+        if (is.null(r$stoich)) 1 else as.numeric(r$stoich)
+    }, numeric(1)))
+}
+
+# Classifica uma reacao; qualquer erro vira "general" com a mensagem como razao,
+# para que o detector nunca interrompa a importacao.
+sbml_classify_reaction <- function(reaction, symbols, species) {
+    tryCatch({
         values <- sbml_merge_values(symbols, reaction$parameters)
         constants <- values[setdiff(names(values), species)]
         info <- sbml_classify_kinetic_law(
@@ -232,11 +250,43 @@ sbml_classify_model <- function(parsed, symbols, species) {
         )
         info$id <- reaction$id
         info$reversible <- isTRUE(reaction$reversible)
-        info$n_reactants <- sum(vapply(reaction$reactants, function(r) {
-            if (is.null(r$stoich)) 1 else as.numeric(r$stoich)
-        }, numeric(1)))
+        info$n_reactants <- sbml_count_side(reaction$reactants)
+        info$n_products <- sbml_count_side(reaction$products)
         info
+    }, error = function(e) {
+        list(class = "general", k = NA_real_, k_forward = NA_real_,
+             k_backward = NA_real_,
+             reason = paste0("erro ao classificar a lei: ", conditionMessage(e)),
+             id = reaction$id, reversible = isTRUE(reaction$reversible),
+             n_reactants = NA_real_, n_products = NA_real_)
     })
+}
+
+sbml_classify_model <- function(parsed, symbols, species) {
+    lapply(parsed$reactions, sbml_classify_reaction,
+           symbols = symbols, species = species)
+}
+
+# TRUE quando a reacao (ja separada, se reversivel) cabe na traducao de 4
+# dominios: ate 2 reagentes. Uma reversivel nao separada exige ate 2 moleculas
+# em cada lado, porque o passo inverso tem os produtos como reagentes.
+sbml_dna_ok <- function(info) {
+    if (info$class == "general") return(FALSE)
+    n <- if (info$class == "reversible_mass_action") {
+        max(info$n_reactants, info$n_products)
+    } else {
+        info$n_reactants
+    }
+    isTRUE(n <= 2)
+}
+
+sbml_dna_reason <- function(info) {
+    if (info$class == "general") return(info$reason)
+    if (sbml_dna_ok(info)) return("")
+    if (info$class == "reversible_mass_action") {
+        return("reversivel com mais de 2 moleculas em um dos lados: o passo inverso tem mais de 2 reagentes (a traducao de 4 dominios nao suporta)")
+    }
+    "mais de 2 reagentes: a traducao de 4 dominios nao suporta"
 }
 
 #' Support table: which reactions can go to the CRN and to DNA.
@@ -264,16 +314,8 @@ sbml_kinetic_report <- function(model) {
         k_forward = vapply(info, `[[`, numeric(1), "k_forward"),
         k_backward = vapply(info, `[[`, numeric(1), "k_backward"),
         crn_ok = TRUE,
-        dna_ok = vapply(info, function(i) {
-            i$class != "general" && i$n_reactants <= 2
-        }, logical(1)),
-        reason = vapply(info, function(i) {
-            if (i$class != "general" && i$n_reactants > 2) {
-                "mais de 2 reagentes: a traducao de 4 dominios nao suporta"
-            } else {
-                i$reason
-            }
-        }, character(1)),
+        dna_ok = vapply(info, sbml_dna_ok, logical(1)),
+        reason = vapply(info, sbml_dna_reason, character(1)),
         stringsAsFactors = FALSE
     )
 }

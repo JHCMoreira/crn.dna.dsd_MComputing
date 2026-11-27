@@ -107,3 +107,62 @@ test_that("tabela de suporte: crn_ok / dna_ok / razao", {
     expect_false(rep$dna_ok)
     expect_match(rep$reason, "B")
 })
+
+# ---- revisao do D no PR #3: robustez do detector ----------------------------
+
+test_that("estequiometria NaN/NA vira 'general' com razao, sem derrubar o detector", {
+    ab <- list(list(species = "A", stoich = 1), list(species = "B", stoich = NaN))
+    r <- classify("k * A * B", ab)
+    expect_equal(r$class, "general")
+    expect_match(r$reason, "estequiometria nao numerica para B")
+    r <- classify("k * A", list(list(species = "A", stoich = NA_real_)))
+    expect_equal(r$class, "general")
+})
+
+test_that("erro inesperado ao classificar uma reacao vira 'general'", {
+    parsed <- list(reactions = list(list(
+        id = "rX", formula = "k * A", reactants = 5, products = list(),
+        parameters = list(), reversible = FALSE
+    )))
+    info <- sbml_classify_model(parsed, symbols = list(k = 1), species = "A")
+    expect_equal(info[[1]]$class, "general")
+    expect_match(info[[1]]$reason, "erro ao classificar")
+})
+
+test_that("lei que depende do tempo nao e acao de massas", {
+    a <- refs(list("A", 1))
+    r <- classify("k * time * A", a)
+    expect_equal(r$class, "general")
+    expect_match(r$reason, "tempo")
+    expect_equal(classify("exp(-time) * A", a)$class, "general")
+})
+
+test_that("c5: estequiometria atribuida por initialAssignment e resolvida (caso 01066)", {
+    skip_if_not(sbml_available())
+    m <- suppressWarnings(read_sbml_to_dnar(fixture("c5_estequiometria_ia.xml")))
+    expect_equal(m$reactions, "A + 2B -> C")
+    expect_equal(m$kinetic_info[[1]]$class, "mass_action")
+    expect_equal(m$ki, 0.5)
+})
+
+test_that("c6: reversivel com 3 produtos nao e dna_ok sem o split; o passo direto e", {
+    skip_if_not(sbml_available())
+    m <- suppressWarnings(read_sbml_to_dnar(fixture("c6_reversivel_3produtos.xml")))
+    expect_equal(m$kinetic_info[[1]]$class, "reversible_mass_action")
+    expect_false(sbml_kinetic_report(m)$dna_ok)
+    rep <- sbml_kinetic_report(sbml_split_reversible(m))
+    expect_equal(rep$dna_ok, c(TRUE, FALSE))
+    expect_match(rep$reason[2], "mais de 2 reagentes")
+})
+
+test_that("c7: formacao 0 -> A com lei k tem ki numerico", {
+    skip_if_not(sbml_available())
+    m <- suppressWarnings(read_sbml_to_dnar(fixture("c7_formacao.xml")))
+    expect_equal(m$reactions, "0 -> A")
+    expect_equal(m$kinetic_info[[1]]$class, "mass_action")
+    expect_false(is.function(m$ki))
+    expect_equal(m$ki, 2)
+    out <- react4(m$species, m$ci, m$reactions, m$ki, c(0, 1, 2),
+                  dx_scale = m$conversion_factors)
+    expect_equal(out$A[3], 4, tolerance = 1e-6)  # A(t) = k * t
+})
