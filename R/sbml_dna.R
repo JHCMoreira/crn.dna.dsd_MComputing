@@ -108,9 +108,9 @@ dna_uniform_scale <- function(model) {
 #' Check whether a prepared SBML model can be translated to DNA.
 #'
 #' A model is compatible when every reaction is mass action with at most two
-#' reactants (papel C detector), all stoichiometries are integers, no reaction
-#' is a formation `0 -> X` (known failure in the 4-domain buffers), and all
-#' changing species share the same `dx_scale`.
+#' reactants (papel C detector), all stoichiometries are integers, and all
+#' changing species share the same `dx_scale`. Formation reactions `0 -> X`
+#' are accepted; their gates need a larger `cmax` (see `dna_material_bound()`).
 #'
 #' @param model A model from [prepare_model_for_dna()].
 #' @return A list with `ok` (logical) and `reasons` (character).
@@ -136,11 +136,6 @@ dna_compatibility <- function(model) {
         if (any(!is.finite(coef)) || any(abs(coef - round(coef)) > 1e-12)) {
             reasons <- c(reasons, sprintf(
                 "reação %s: estequiometria não inteira", report$id[[i]]))
-        }
-        if (nrow(parsed$reactants) == 0L) {
-            reasons <- c(reasons, sprintf(
-                "reação %s: reação de formação (0 -> X) ainda não suportada na tradução 4-domain",
-                report$id[[i]]))
         }
     }
 
@@ -192,4 +187,22 @@ dna_crn_from_model <- function(model) {
         fixed_species = unname(rename[fixed]),
         name_map = setNames(original, renamed)
     )
+}
+
+#' Upper bound of the material the circuit may have to hold.
+#'
+#' Gates are consumed as the formal species are processed. Besides the initial
+#' amounts, formation reactions `0 -> X` keep producing material, at most
+#' `k * duration` each, so `cmax` must also be large compared with that.
+#'
+#' @param crn A CRN from [dna_crn_from_model()].
+#' @param duration Simulated time span (in CRN time units).
+#' @return A positive number (1 when everything is zero).
+#' @keywords internal
+dna_material_bound <- function(crn, duration) {
+    formation <- vapply(crn$reactions, function(reaction) {
+        nrow(dna_parse_reaction(reaction)$reactants) == 0L
+    }, logical(1))
+    bound <- max(c(0, crn$ci)) + sum(crn$ki[formation]) * duration
+    if (is.finite(bound) && bound > 0) bound else 1
 }

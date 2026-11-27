@@ -91,9 +91,16 @@ test_that("mais de 2 reagentes vira não suportado", {
     expect_match(reasons_of(m), "mais de 2 reagentes", all = FALSE)
 })
 
-test_that("reação de formação 0 -> X vira não suportado", {
-    m <- toy_model("A", 0, "0 -> A", list(list(k = 2, n_reactants = 0)))
-    expect_match(reasons_of(m), "formação", all = FALSE)
+test_that("reação de formação 0 -> X é aceita e entra no limite de material", {
+    m <- toy_model(c("A", "B"), c(0, 3), c("0 -> A", "A -> B"),
+                   list(list(k = 2, n_reactants = 0), list(k = 1)))
+    p <- prepare_model_for_dna(m)
+    expect_true(dna_compatibility(p)$ok)
+    crn <- dna_crn_from_model(p)
+    expect_equal(crn$reactions, c("0 -> A", "A -> B"))
+    # material inicial (3) + formação 2 * duração 10
+    expect_equal(dna_material_bound(crn, 10), 23)
+    expect_equal(dna_material_bound(list(ci = 0, reactions = "A -> B", ki = 1), 10), 1)
 })
 
 test_that("estequiometria não inteira vira não suportado", {

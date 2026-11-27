@@ -40,7 +40,8 @@ dna_error_metrics <- function(simulation, reference, variables) {
 #' @param case_id Case id, e.g. "00062".
 #' @param base_dir Folder with the semantic cases.
 #' @param qmax_factor,cmax_factor `qmax = qmax_factor * max(ki)` and
-#'   `cmax = cmax_factor * max(ci)` (only the positive initial values).
+#'   `cmax = cmax_factor * beta * dna_material_bound()` (initial amounts plus
+#'   what formation reactions can produce in the simulated time).
 #' @param alpha,beta Time and concentration scales of the DNA circuit; the
 #'   result is mapped back by simulating at `alpha * t` and dividing by `beta`.
 #' @return A list with `status_dna` ("passou", "falhou", "nao suportado"),
@@ -164,9 +165,11 @@ run_sbml_case_dna <- function(case_id, base_dir,
         ), check.names = FALSE)
 
         # Circuito DNA.
-        positive_ci <- dna_crn$ci[dna_crn$ci > 0]
+        # cmax cobre o material inicial e o produzido por formações (0 -> X),
+        # na escala de concentração do circuito (beta).
         qmax <- qmax_factor * max(dna_crn$ki)
-        cmax <- cmax_factor * (if (length(positive_ci)) max(positive_ci) else 1)
+        cmax <- cmax_factor * beta *
+            dna_material_bound(dna_crn, max(integration_times) - min(integration_times))
         forced_dna <- NULL
         if (length(dna_crn$fixed_species) > 0L) {
             fixed_ci <- dna_crn$ci[match(dna_crn$fixed_species, dna_crn$species)]
