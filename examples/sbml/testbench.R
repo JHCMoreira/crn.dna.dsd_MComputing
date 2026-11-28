@@ -236,7 +236,9 @@ compare_sbml_results <- function(result, reference, variables = NULL,
     values <- do.call(rbind, lapply(variables, function(name) {
         actual <- result[[name]]
         expected <- reference[[name]]
-        both_nan <- is.nan(actual) & is.nan(expected)
+        # The reference is read with na.strings = "NaN", so an expected NaN
+        # arrives as NA: match it against a NaN in the result.
+        both_nan <- is.nan(actual) & is.na(expected)
         same_infinity <- is.infinite(actual) & is.infinite(expected) &
             sign(actual) == sign(expected)
         same_infinity[is.na(same_infinity)] <- FALSE
@@ -445,6 +447,17 @@ run_sbml_case <- function(case_id, base_dir,
             integration_times <- sort(unique(c(0, times)))
             if (length(model$species) == 0L) {
                 simulation <- data.frame(time = times, check.names = FALSE)
+            } else if (length(model$reactions) == 0L) {
+                # No reactions (e.g. only `0 -> 0`, dropped by the importer):
+                # react4 cannot run, and every species stays at its initial value.
+                simulation <- data.frame(
+                    time = times,
+                    as.list(model$ci),
+                    check.names = FALSE
+                )
+                simulation <- sbml_project_output(
+                    simulation, settings, model_file$path, model = model
+                )
             } else {
                 forced <- NULL
                 if (length(model$fixed_species) > 0L) {
