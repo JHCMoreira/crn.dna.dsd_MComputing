@@ -78,3 +78,14 @@ test_that("com stiff_retry, o caso rígido é repetido com qmax menor e passa", 
     expect_gt(r$params$retries, 0L)
     expect_lt(r$params$qmax_factor, 1e6)
 })
+
+test_that("gráfico do caso é gerado com referência, CRN, DNA e painel de erro", {
+    skip_if_not(requireNamespace("ggplot2", quietly = TRUE))
+    source(file.path(root, "examples", "sbml", "dna_plots.R"))
+    png <- tempfile(fileext = ".png")
+    p <- plot_case_comparison(run_sbml_case_dna("00062", suite), png)
+    expect_true(file.exists(png))
+    expect_setequal(levels(p$data$source), c("referência SBML", "CRN (DNAr)", "circuito DNA"))
+    expect_length(levels(p$data$panel), 2L)
+    expect_error(plot_case_comparison(run_sbml_case_dna("00028", suite)), "sem série do DNA")
+})
