@@ -89,3 +89,11 @@ test_that("gráfico do caso é gerado com referência, CRN, DNA e painel de erro
     expect_length(levels(p$data$panel), 2L)
     expect_error(plot_case_comparison(run_sbml_case_dna("00028", suite)), "sem série do DNA")
 })
+
+test_that("volume do compartimento vindo de initialAssignment (00473) é usado na saída", {
+    # Antes, sem passar model = model ao sbml_project_output(), o fluxo do D
+    # falhava com "Volume ausente ou invalido".
+    r <- run_sbml_case_dna("00473", suite)
+    expect_equal(r$status_crn, "passou")
+    expect_equal(r$status_dna, "passou")
+})
