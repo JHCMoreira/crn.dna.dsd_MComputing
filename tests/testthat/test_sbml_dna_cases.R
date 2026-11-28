@@ -54,3 +54,27 @@ test_that("lote grava o resumo com uma linha por caso", {
                       "qmax", "cmax", "sim_seconds", "reason") %in% names(s)))
     expect_length(out$results, 2L)
 })
+
+test_that("caso lido uma vez pode ser simulado com vários qmax/cmax", {
+    loaded <- load_sbml_case_dna("00062", suite)
+    a <- simulate_case_dna(loaded, qmax_factor = 1e3, cmax_factor = 1e3)
+    b <- simulate_case_dna(loaded, qmax_factor = 1e5, cmax_factor = 1e5)
+    expect_equal(c(a$params$qmax_factor, b$params$qmax_factor), c(1e3, 1e5))
+    expect_lt(b$metrics$nrmse_dna, a$metrics$nrmse_dna)   # erro cai com fatores maiores
+    expect_equal(run_sbml_case_dna("00062", suite)$metrics$nrmse_dna,
+                 simulate_case_dna(loaded)$metrics$nrmse_dna)
+})
+
+test_that("sistema rígido (qmax e cmax altos) vira falha com motivo, sem erro", {
+    r <- run_sbml_case_dna("00001", suite, qmax_factor = 1e6, cmax_factor = 1e6,
+                           stiff_retry = FALSE)
+    expect_equal(r$status_dna, "falhou")
+    expect_match(r$reason, "sistema rigido")
+})
+
+test_that("com stiff_retry, o caso rígido é repetido com qmax menor e passa", {
+    r <- run_sbml_case_dna("00001", suite, qmax_factor = 1e6, cmax_factor = 1e6)
+    expect_equal(r$status_dna, "passou")
+    expect_gt(r$params$retries, 0L)
+    expect_lt(r$params$qmax_factor, 1e6)
+})

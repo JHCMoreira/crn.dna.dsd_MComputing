@@ -35,25 +35,21 @@ dna_error_metrics <- function(simulation, reference, variables) {
     )
 }
 
-#' Run one SBML Test Suite case through the CRN and the DNA circuit.
+#' Load one SBML Test Suite case and prepare it for the DNA circuit.
+#'
+#' Does the expensive part once (reading the SBML with libSBML, checking DNA
+#' compatibility, simulating the CRN and finding the output units), so that
+#' [simulate_case_dna()] can then try many `qmax`/`cmax` values cheaply.
 #'
 #' @param case_id Case id, e.g. "00062".
 #' @param base_dir Folder with the semantic cases.
-#' @param qmax_factor,cmax_factor `qmax = qmax_factor * max(ki)` and
-#'   `cmax = cmax_factor * beta * dna_material_bound()` (initial amounts plus
-#'   what formation reactions can produce in the simulated time).
-#' @param alpha,beta Time and concentration scales of the DNA circuit; the
-#'   result is mapped back by simulating at `alpha * t` and dividing by `beta`.
-#' @return A list with `status_dna` ("passou", "falhou", "nao suportado"),
-#'   `reason`, `status_crn`, error metrics, parameters and the series
-#'   `reference`, `crn` and `dna`.
-run_sbml_case_dna <- function(case_id, base_dir,
-                              qmax_factor = 1e4, cmax_factor = 1e4,
-                              alpha = 1, beta = 1,
-                              absolute_tolerance = 1e-6,
-                              relative_tolerance = 1e-4,
-                              preferred_level = "l3v2",
-                              case_dir = NULL) {
+#' @return A list with `result` (the partial result) and `context` (`NULL`
+#'   when the case stops before the DNA simulation).
+load_sbml_case_dna <- function(case_id, base_dir,
+                               absolute_tolerance = 1e-6,
+                               relative_tolerance = 1e-4,
+                               preferred_level = "l3v2",
+                               case_dir = NULL) {
     if (is.null(case_dir)) {
         case_dir <- discover_sbml_cases(base_dir, case_ids = case_id)$case_dir[1L]
     }
@@ -73,22 +69,21 @@ run_sbml_case_dna <- function(case_id, base_dir,
         n_dna_species = NA_integer_, n_dna_reactions = NA_integer_,
         sim_seconds = NA_real_, warnings = character()
     )
-    unsupported <- function(reason) {
-        result$status_dna <- "nao suportado"
+    stop_here <- function(reason, status = "falhou") {
+        result$status_dna <- status
         result$reason <- reason
-        result
+        list(result = result, context = NULL)
     }
 
     preflight <- sbml_known_unsupported(metadata)
     if (nzchar(preflight)) {
-        return(unsupported(preflight))
+        return(stop_here(preflight, "nao suportado"))
     }
     if (any(!is.finite(c(settings$start, settings$duration, settings$steps)))) {
-        result$reason <- "start, duration ou steps ausente para TimeCourse"
-        return(result)
+        return(stop_here("start, duration ou steps ausente para TimeCourse"))
     }
     if (!file.exists(reference_file)) {
-        return(unsupported("arquivo de referencia ausente"))
+        return(stop_here("arquivo de referencia ausente", "nao suportado"))
     }
 
     warnings <- character()
@@ -101,28 +96,29 @@ run_sbml_case_dna <- function(case_id, base_dir,
         withCallingHandlers(read_sbml_to_dnar(model_file$path), warning = keep_warning),
         error = function(e) e
     )
+    result$warnings <- unique(warnings)
     if (inherits(model, "error")) {
-        result$warnings <- unique(warnings)
         message <- conditionMessage(model)
         # O importador recusa de propósito o que está fora do escopo
         # (ex.: "não suportado: múltiplos compartimentos").
         if (grepl("^n(ã|a)o suportado", message)) {
-            return(unsupported(paste("importacao:", message)))
+            return(stop_here(paste("importacao:", message), "nao suportado"))
         }
-        result$reason <- paste("importacao:", message)
-        return(result)
+        return(stop_here(paste("importacao:", message)))
     }
     output_names <- names(model$outputs)
     missing_variables <- setdiff(settings$variables, c(model$species, output_names))
     if (length(missing_variables) > 0L) {
-        return(unsupported(paste0("variavel de referencia nao simulada pelo DNAr: ",
-                                  paste(missing_variables, collapse = ", "))))
+        return(stop_here(paste0("variavel de referencia nao simulada pelo DNAr: ",
+                                paste(missing_variables, collapse = ", ")),
+                         "nao suportado"))
     }
 
     prepared <- prepare_model_for_dna(model)
     compat <- dna_compatibility(prepared)
     if (!compat$ok) {
-        return(unsupported(paste("DNA:", paste(compat$reasons, collapse = "; "))))
+        return(stop_here(paste("DNA:", paste(compat$reasons, collapse = "; ")),
+                         "nao suportado"))
     }
     dna_crn <- dna_crn_from_model(prepared)
 
@@ -134,22 +130,7 @@ run_sbml_case_dna <- function(case_id, base_dir,
     time_col <- match("time", tolower(names(reference)))
     if (!is.na(time_col)) names(reference)[[time_col]] <- "time"
 
-    # Monta a saída no formato da referência (unidades e variáveis extras).
-    finish_output <- function(simulation) {
-        simulation <- simulation[match(times, simulation$time), , drop = FALSE]
-        simulation <- sbml_project_output(simulation, settings, model_file$path)
-        for (name in intersect(output_names, settings$variables)) {
-            simulation[[name]] <- model$outputs[[name]]
-        }
-        simulation
-    }
-    compare <- function(simulation) {
-        compare_sbml_results(simulation, reference, variables = settings$variables,
-                             absolute_tolerance = absolute_tolerance,
-                             relative_tolerance = relative_tolerance)
-    }
-
-    simulated <- tryCatch(withCallingHandlers({
+    prepared_run <- tryCatch(withCallingHandlers({
         # CRN de referência: mesmo caminho do testbench do grupo.
         forced_crn <- NULL
         if (length(model$fixed_species) > 0L) {
@@ -163,10 +144,97 @@ run_sbml_case_dna <- function(case_id, base_dir,
             forced_concentrations = forced_crn, dx_scale = model$conversion_factors,
             rtol = 1e-10, atol = 1e-12
         ), check.names = FALSE)
+        crn <- crn[match(times, crn$time), , drop = FALSE]
 
-        # Circuito DNA.
-        # cmax cobre o material inicial e o produzido por formações (0 -> X),
-        # na escala de concentração do circuito (beta).
+        # Conversão de unidades de saída (quantidade x concentração): é um
+        # fator constante por variável, obtido uma vez com o testbench do grupo.
+        ones <- as.data.frame(as.list(setNames(rep(1, length(model$species) + 1L),
+                                               c("time", model$species))),
+                              check.names = FALSE)
+        unit_factor <- unlist(sbml_project_output(ones, settings, model_file$path)[model$species])
+
+        list(crn = crn, unit_factor = unit_factor)
+    }, warning = keep_warning), error = function(e) e)
+    result$warnings <- unique(warnings)
+    if (inherits(prepared_run, "error")) {
+        return(stop_here(paste("simulacao:", conditionMessage(prepared_run))))
+    }
+
+    context <- list(
+        settings = settings, model = model, dna_crn = dna_crn,
+        times = times, integration_times = integration_times,
+        reference = reference, unit_factor = prepared_run$unit_factor,
+        absolute_tolerance = absolute_tolerance,
+        relative_tolerance = relative_tolerance
+    )
+    context$crn <- dna_finish_output(prepared_run$crn, context)
+    context$comparison_crn <- dna_compare(context$crn, context)
+    list(result = result, context = context)
+}
+
+# Saída no formato da referência: unidades e variáveis que não são espécies.
+dna_finish_output <- function(simulation, context) {
+    for (name in names(context$unit_factor)) {
+        simulation[[name]] <- simulation[[name]] * context$unit_factor[[name]]
+    }
+    outputs <- context$model$outputs
+    for (name in intersect(names(outputs), context$settings$variables)) {
+        simulation[[name]] <- outputs[[name]]
+    }
+    simulation
+}
+
+dna_compare <- function(simulation, context) {
+    compare_sbml_results(simulation, context$reference,
+                         variables = context$settings$variables,
+                         absolute_tolerance = context$absolute_tolerance,
+                         relative_tolerance = context$relative_tolerance)
+}
+
+#' Simulate the DNA circuit of a loaded case and compare it with the reference.
+#'
+#' Default factors come from the calibration (examples/sbml/dna_calibration.R):
+#' qmax and cmax at 1e5 gave the most approved cases. With `stiff_retry`, a
+#' stiff run (the solver does not finish) is repeated with qmax ten times
+#' smaller, down to `min_qmax_factor`.
+#'
+#' @param loaded Output of [load_sbml_case_dna()].
+#' @param qmax_factor,cmax_factor `qmax = qmax_factor * max(ki)` and
+#'   `cmax = cmax_factor * beta * dna_material_bound()` (initial amounts plus
+#'   what formation reactions can produce in the simulated time).
+#' @param alpha,beta Time and concentration scales of the DNA circuit; the
+#'   result is mapped back by simulating at `alpha * t` and dividing by `beta`.
+#' @param stiff_retry Retry stiff runs with a smaller qmax.
+#' @return The result list (see [run_sbml_case_dna()]); `params$retries`
+#'   counts the retries and `params$qmax_factor` is the factor actually used.
+simulate_case_dna <- function(loaded, qmax_factor = 1e5, cmax_factor = 1e5,
+                              alpha = 1, beta = 1,
+                              stiff_retry = FALSE, min_qmax_factor = 1e2) {
+    result <- simulate_case_dna_once(loaded, qmax_factor, cmax_factor, alpha, beta)
+    retries <- 0L
+    while (stiff_retry && grepl("sistema rigido", result$reason) &&
+           qmax_factor / 10 >= min_qmax_factor) {
+        qmax_factor <- qmax_factor / 10
+        retries <- retries + 1L
+        result <- simulate_case_dna_once(loaded, qmax_factor, cmax_factor, alpha, beta)
+    }
+    if (!is.null(result$params)) {
+        result$params$retries <- retries
+    }
+    result
+}
+
+simulate_case_dna_once <- function(loaded, qmax_factor, cmax_factor, alpha, beta) {
+    result <- loaded$result
+    context <- loaded$context
+    if (is.null(context)) {
+        return(result)
+    }
+    dna_crn <- context$dna_crn
+    integration_times <- context$integration_times
+
+    warnings <- character()
+    simulated <- tryCatch(withCallingHandlers({
         qmax <- qmax_factor * max(dna_crn$ki)
         cmax <- cmax_factor * beta *
             dna_material_bound(dna_crn, max(integration_times) - min(integration_times))
@@ -188,47 +256,80 @@ run_sbml_case_dna <- function(case_id, base_dir,
         )
         elapsed <- as.numeric(difftime(Sys.time(), started, units = "secs"))
 
-        # Só as espécies formais, com tempo e concentração revertidos.
         dna <- as.data.frame(dna_run$behavior, check.names = FALSE)
+        if (nrow(dna) < length(integration_times)) {
+            stop("integracao interrompida: sistema rigido ",
+                 "(qmax x cmax alto demais para o resolvedor)")
+        }
+        # Só as espécies formais, com tempo e concentração revertidos.
         dna <- dna[, c("time", dna_crn$species), drop = FALSE]
         dna$time <- integration_times
         dna[dna_crn$species] <- dna[dna_crn$species] / beta
         names(dna) <- c("time", unname(dna_crn$name_map[dna_crn$species]))
+        dna <- dna[match(context$times, dna$time), , drop = FALSE]
 
-        list(crn = finish_output(crn), dna = finish_output(dna),
+        list(dna = dna_finish_output(dna, context),
              qmax = qmax, cmax = cmax, elapsed = elapsed,
              n_species = length(dna_run$species),
              n_reactions = length(dna_run$reactions))
-    }, warning = keep_warning), error = function(e) e)
+    }, warning = function(w) {
+        warnings <<- c(warnings, conditionMessage(w))
+        invokeRestart("muffleWarning")
+    }), error = function(e) e)
 
-    result$warnings <- unique(warnings)
+    result$warnings <- unique(c(result$warnings, warnings))
+    result$status_crn <- if (context$comparison_crn$passed) "passou" else "falhou"
+    result$params <- list(qmax_factor = qmax_factor, cmax_factor = cmax_factor,
+                          alpha = alpha, beta = beta)
     if (inherits(simulated, "error")) {
         result$reason <- paste("simulacao:", conditionMessage(simulated))
         return(result)
     }
 
-    comparison_crn <- compare(simulated$crn)
-    comparison_dna <- compare(simulated$dna)
-    errors <- dna_error_metrics(simulated$dna, reference, settings$variables)
-
-    result$status_crn <- if (comparison_crn$passed) "passou" else "falhou"
+    comparison_dna <- dna_compare(simulated$dna, context)
+    errors <- dna_error_metrics(simulated$dna, context$reference,
+                                context$settings$variables)
     result$status_dna <- if (comparison_dna$passed) "passou" else "falhou"
     result$comparison_dna <- comparison_dna
     result$metrics <- list(
         max_abs_err_dna = comparison_dna$max_absolute_error,
         max_rel_err_dna = comparison_dna$max_relative_error,
         mse_dna = errors$mse, nrmse_dna = errors$nrmse,
-        max_rel_err_crn = comparison_crn$max_relative_error
+        max_rel_err_crn = context$comparison_crn$max_relative_error
     )
-    result$params <- list(qmax = simulated$qmax, cmax = simulated$cmax,
-                          alpha = alpha, beta = beta)
+    result$params$qmax <- simulated$qmax
+    result$params$cmax <- simulated$cmax
     result$n_dna_species <- simulated$n_species
     result$n_dna_reactions <- simulated$n_reactions
     result$sim_seconds <- simulated$elapsed
-    result$reference <- reference
-    result$crn <- simulated$crn
+    result$reference <- context$reference
+    result$crn <- context$crn
     result$dna <- simulated$dna
     result
+}
+
+#' Run one SBML Test Suite case through the CRN and the DNA circuit.
+#'
+#' Same as [load_sbml_case_dna()] followed by [simulate_case_dna()], with the
+#' calibrated defaults (qmax and cmax factors 1e5, retry when stiff).
+#'
+#' @return A list with `status_dna` ("passou", "falhou", "nao suportado"),
+#'   `reason`, `status_crn`, error metrics, parameters and the series
+#'   `reference`, `crn` and `dna`.
+run_sbml_case_dna <- function(case_id, base_dir,
+                              qmax_factor = 1e5, cmax_factor = 1e5,
+                              alpha = 1, beta = 1, stiff_retry = TRUE,
+                              absolute_tolerance = 1e-6,
+                              relative_tolerance = 1e-4,
+                              preferred_level = "l3v2",
+                              case_dir = NULL) {
+    loaded <- load_sbml_case_dna(case_id, base_dir,
+                                 absolute_tolerance = absolute_tolerance,
+                                 relative_tolerance = relative_tolerance,
+                                 preferred_level = preferred_level,
+                                 case_dir = case_dir)
+    simulate_case_dna(loaded, qmax_factor = qmax_factor, cmax_factor = cmax_factor,
+                      alpha = alpha, beta = beta, stiff_retry = stiff_retry)
 }
 
 # Uma linha da tabela de resumo para um resultado de run_sbml_case_dna().
@@ -246,6 +347,9 @@ dna_case_row <- function(result) {
         mse_dna = metric("mse_dna"),
         nrmse_dna = metric("nrmse_dna"),
         max_rel_err_crn = metric("max_rel_err_crn"),
+        qmax_factor = param("qmax_factor"),
+        cmax_factor = param("cmax_factor"),
+        retries = param("retries"),
         qmax = param("qmax"),
         cmax = param("cmax"),
         alpha = param("alpha"),

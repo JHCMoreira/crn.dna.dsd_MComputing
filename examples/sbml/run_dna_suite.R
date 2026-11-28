@@ -3,7 +3,10 @@
 # Uso, na raiz do repositório:
 #   Rscript examples/sbml/run_dna_suite.R                     # todos os casos
 #   Rscript examples/sbml/run_dna_suite.R --cases=00001,00062 # só alguns
-#   Rscript examples/sbml/run_dna_suite.R --factor=1e5        # qmax e cmax
+#   Rscript examples/sbml/run_dna_suite.R --factor=1e4        # qmax e cmax
+#
+# Padrão: fator 1e5 para qmax e cmax, repetindo com qmax/10 quando o sistema
+# fica rígido (resultado da calibração, examples/sbml/dna_calibration.R).
 #
 # Saídas em results/ (fora do Git):
 #   dna_summary.csv  uma linha por caso (status CRN e DNA, erros, parâmetros)
@@ -16,7 +19,7 @@ option <- function(name, default) {
 }
 suite <- option("suite", file.path("external", "sbml-test-suite", "cases", "semantic"))
 out_dir <- option("out", "results")
-factor <- as.numeric(option("factor", "1e4"))
+factor <- as.numeric(option("factor", "1e5"))
 cases <- option("cases", "")
 case_ids <- if (nzchar(cases)) strsplit(cases, ",", fixed = TRUE)[[1]] else NULL
 
