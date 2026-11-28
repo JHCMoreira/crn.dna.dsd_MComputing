@@ -16,14 +16,10 @@ matlab/data
 .vscode
 .Rbuildignore
 
-# Papel D: resultados gerados, Test Suite baixada e notas locais
+# Resultados gerados e SBML Test Suite baixada
 results/
 test-suite/
-contexto_papel_D.md
 external/
-diario.md
-plano_etapa2.md
-revisoes_prs.md
 external/sbml-test-suite/
 results/sbml*/
 !reports/sbml-baseline/*.csv
