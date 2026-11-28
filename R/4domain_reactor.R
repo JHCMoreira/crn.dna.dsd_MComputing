@@ -66,6 +66,10 @@ get_buff_modules <- function(reactions, ki, qmax, cmax) {
     # Formation reactions (0 -> A) are ignored
     uni_count <- 0
     for(i in seq_along(reactions)) {
+        # Formation (0 -> A) has no reactant: skip it before reading one.
+        if(is_formation(reactions[[i]])) {
+            next
+        }
         reactants <- get_reactants(reactions[i])
         first_reactant <- reactants[[1]]
 
@@ -231,6 +235,10 @@ translate_4domain_crn <- function(
         if(is_bimolecular(reactions[i])) {
             scaled_ks[i] <- ki[i] / (alpha * beta)
             is_bimolecular_map[i] <- TRUE
+        } else if(is_formation(reactions[[i]])) {
+            # Zero-order rate is concentration/time, so it scales with beta.
+            scaled_ks[i] <- ki[i] * beta / alpha
+            is_bimolecular_map[i] <- FALSE
         } else {
             scaled_ks[i] <- ki[i] / alpha
             is_bimolecular_map[i] <- FALSE
