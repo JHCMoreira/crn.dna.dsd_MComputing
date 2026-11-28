@@ -588,3 +588,51 @@ test_that("csymbols time and avogadro are available in SBML math", {
     crn <- suppressWarnings(read_sbml_to_dnar(path))
     expect_equal(crn$ki[[1]](3, c(S1 = 2)), 6)
 })
+
+test_that("sbml_math_env covers MathML functions and constants", {
+    ev <- function(f) eval(parse(text = f)[[1]], envir = sbml_math_env(list()))
+    expect_equal(ev("plus()"), 0)
+    expect_equal(ev("times()"), 1)
+    expect_true(ev("and()"))
+    expect_false(ev("or()"))
+    expect_false(ev("xor()"))
+    expect_true(ev("xor(xor(xor(true), true), true)"))
+    expect_false(ev("implies(true, false)"))
+    expect_true(ev("implies(false, false)"))
+    expect_equal(ev("quotient(9, 2)"), 4)
+    expect_equal(ev("rem(9, 2)"), 1)
+    expect_equal(ev("rem(-9, 2)"), -1)
+    expect_equal(ev("sec(0.5)"), 1 / cos(0.5))
+    expect_equal(ev("arccot(-0.1)"), atan(-10))
+    expect_equal(ev("log(2, 8)"), 3)
+    expect_equal(ev("log10(100)"), 2)
+    expect_equal(ev("root(3, 27)"), 3)
+    expect_equal(ev("INF"), Inf)
+    expect_equal(ev("-INF"), -Inf)
+})
+
+test_that("initialAssignment can read a reaction rate by reaction id", {
+    out <- sbml_resolve_initial_assignments(
+        list(list(symbol = "p1", formula = "J0")),
+        list(k = 2, S = 3),
+        reactions = list(list(id = "J0", formula = "k * S * f",
+                              parameters = list(f = 0.5)))
+    )
+    expect_equal(out$p1, 3)
+    expect_null(out$J0)
+})
+
+test_that("chained comparisons and empty/negative reactions are imported", {
+    skip_if_not(sbml_available())
+    suite <- file.path("..", "..", "external", "sbml-test-suite", "cases", "semantic")
+    case <- function(id) file.path(suite, id, paste0(id, "-sbml-l3v2.xml"))
+    skip_if_not(file.exists(case("01209")))
+
+    expect_equal(read_sbml_to_dnar(case("01209"))$symbols$x, 3)
+    expect_equal(read_sbml_to_dnar(case("01781"))$symbols$x, 3)
+    m <- read_sbml_to_dnar(case("01245"))
+    expect_length(m$reactions, 0L)
+    m <- suppressWarnings(read_sbml_to_dnar(case("01561")))
+    expect_false(any(grepl("(^|[ +>])-[0-9]", m$reactions)))
+    expect_true(any(grepl("^[0-9.]+S7 -> 0$", m$reactions)))
+})
