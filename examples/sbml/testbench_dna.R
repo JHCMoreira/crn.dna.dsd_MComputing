@@ -151,7 +151,9 @@ load_sbml_case_dna <- function(case_id, base_dir,
         ones <- as.data.frame(as.list(setNames(rep(1, length(model$species) + 1L),
                                                c("time", model$species))),
                               check.names = FALSE)
-        unit_factor <- unlist(sbml_project_output(ones, settings, model_file$path)[model$species])
+        # model = model: usa o volume resolvido por initialAssignment (como o testbench).
+        unit_factor <- unlist(sbml_project_output(ones, settings, model_file$path,
+                                                  model = model)[model$species])
 
         list(crn = crn, unit_factor = unit_factor)
     }, warning = keep_warning), error = function(e) e)
