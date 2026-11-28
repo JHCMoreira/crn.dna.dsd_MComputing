@@ -966,6 +966,12 @@ read_sbml_to_dnar <- function(xml_file_path) {
             ki[[i]] <- sbml_general_rate_function(
                 reaction$formula, values[setdiff(names(values), species)]
             )
+        } else if (kinetic_info[[i]]$class == "mass_action" &&
+                   is.function(ki[[i]])) {
+            # Caso inverso: a heuristica devolveu a lei completa como funcao
+            # (ex.: formacao `0 -> A` com lei `k`), mas a arvore confirma acao
+            # de massas. A traducao para DNA precisa do k numerico.
+            ki[[i]] <- kinetic_info[[i]]$k
         }
     }
     if (length(ki) > 0L &&
